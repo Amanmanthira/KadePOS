@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const sql = require('mssql');
@@ -81,7 +81,8 @@ async function initDb() {
     receiptHeader: 'WELCOME TO KADE POS',
     receiptFooter: 'Thank you for shopping with us! Please come again.',
     receiptPaperWidth: '80mm',
-    receiptAutoPrint: '1'
+    receiptAutoPrint: '1',
+    backupPath: path.join(require('os').homedir(), 'KadePOS_Backups')
   };
   for (const [k, v] of Object.entries(defaults))
     await q().input('k', sql.NVarChar, k).input('v', sql.NVarChar, v)
@@ -174,6 +175,10 @@ function hasAccess(ch, session, roles) {
   if (ch.startsWith('settings:')) {
     if (ch === 'settings:getReceipt') return true;
     return userPerms.includes('receipts');
+  }
+  if (ch.startsWith('backup:')) {
+    if (ch === 'backup:runNow' || ch === 'backup:getStatus') return true;
+    return userPerms.includes('backup') || session.role === A;
   }
 
   return roles ? roles.includes(session.role) : true;
@@ -754,6 +759,265 @@ handle('grn:create', MA, async ({ grnNo, supplier, invoiceRef, notes, items }) =
   }
 });
 
+/* ---------- Automated Database Backup Engine (Hourly / Single File Per Day) ---------- */
+let backupTimer = null;
+let lastBackupInfo = {
+  timestamp: null,
+  file: null,
+  path: null,
+  size: 0,
+  records: 0,
+  status: 'idle',
+  error: null
+};
+
+async function getBackupDirectory() {
+  const s = await getSettings();
+  let dir = (s.backupPath || '').trim();
+  if (!dir) {
+    dir = path.join(require('os').homedir(), 'KadePOS_Backups');
+    try {
+      await setSetting('backupPath', dir);
+    } catch {}
+  }
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
+
+async function performHourlyBackup(isManual = false) {
+  try {
+    if (!pool || !pool.connected) return { ok: false, error: 'Database not connected' };
+    const dir = await getBackupDirectory();
+    const d = new Date();
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const filename = `kade_pos_backup_${dateStr}.bak`;
+    const fullPath = path.join(dir, filename);
+
+    const tables = [
+      'Settings',
+      'Users',
+      'Items',
+      'Sales',
+      'SaleItems',
+      'GRNs',
+      'GRNItems',
+      'Payments',
+      'SubscriptionCodes'
+    ];
+
+    const backupData = {
+      app: 'Kade POS Enterprise',
+      version: '2.0',
+      database: DB.database,
+      backupDate: dateStr,
+      generatedAt: d.toISOString(),
+      updatedAtFormatted: d.toLocaleString('en-LK'),
+      isManualTrigger: isManual,
+      tables: {}
+    };
+
+    let totalRecords = 0;
+    for (const t of tables) {
+      try {
+        const rows = (await pool.request().query(`SELECT * FROM [${t}]`)).recordset;
+        backupData.tables[t] = rows;
+        totalRecords += rows.length;
+      } catch {
+        backupData.tables[t] = [];
+      }
+    }
+    backupData.totalRecords = totalRecords;
+
+    // Overwrite the single file for the day!
+    fs.writeFileSync(fullPath, JSON.stringify(backupData, null, 2), 'utf8');
+    const stat = fs.statSync(fullPath);
+
+    lastBackupInfo = {
+      timestamp: d.toISOString(),
+      file: filename,
+      path: fullPath,
+      size: stat.size,
+      records: totalRecords,
+      status: 'ok',
+      error: null
+    };
+
+    return {
+      ok: true,
+      file: filename,
+      path: fullPath,
+      size: stat.size,
+      records: totalRecords,
+      time: d.toISOString()
+    };
+  } catch (err) {
+    lastBackupInfo.status = 'error';
+    lastBackupInfo.error = err.message;
+    return { ok: false, error: err.message };
+  }
+}
+
+function initBackupScheduler() {
+  clearInterval(backupTimer);
+  // Perform an initial backup 4 seconds after launch to ensure today's file exists
+  setTimeout(() => { performHourlyBackup().catch(() => {}); }, 4000);
+  // Repeat every 1 hour (3600000 ms) to keep updating the same file for today
+  backupTimer = setInterval(() => {
+    performHourlyBackup().catch(() => {});
+  }, 60 * 60 * 1000);
+}
+
+handle('backup:getStatus', ALL, async () => {
+  const dir = await getBackupDirectory();
+  const d = new Date();
+  const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const todayFile = `kade_pos_backup_${dateStr}.bak`;
+  const todayPath = path.join(dir, todayFile);
+  let todayExists = false;
+  let todaySize = 0;
+  let todayModified = null;
+
+  if (fs.existsSync(todayPath)) {
+    todayExists = true;
+    try {
+      const stat = fs.statSync(todayPath);
+      todaySize = stat.size;
+      todayModified = stat.mtime.toISOString();
+    } catch {}
+  }
+
+  let history = [];
+  try {
+    const files = fs.readdirSync(dir);
+    history = files
+      .filter(f => f.startsWith('kade_pos_backup_') && (f.endsWith('.bak') || f.endsWith('.json')))
+      .map(f => {
+        try {
+          const s = fs.statSync(path.join(dir, f));
+          return {
+            filename: f,
+            path: path.join(dir, f),
+            size: s.size,
+            modifiedAt: s.mtime.toISOString(),
+            isToday: f === todayFile
+          };
+        } catch { return null; }
+      })
+      .filter(Boolean)
+      .sort((a, b) => new Date(b.modifiedAt) - new Date(a.modifiedAt));
+  } catch {}
+
+  return {
+    backupPath: dir,
+    lastBackup: lastBackupInfo,
+    todayFile,
+    todayExists,
+    todaySize,
+    todayModified,
+    history
+  };
+});
+
+handle('backup:selectPath', ADMIN, async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const res = await dialog.showOpenDialog(win, {
+    title: 'Select Database Backup Directory',
+    properties: ['openDirectory', 'createDirectory']
+  });
+  if (res.canceled || !res.filePaths || !res.filePaths.length) {
+    return { canceled: true };
+  }
+  const chosenPath = res.filePaths[0];
+  await setSetting('backupPath', chosenPath);
+  const backupRes = await performHourlyBackup(true);
+  return { canceled: false, path: chosenPath, backup: backupRes };
+});
+
+handle('backup:setPath', ADMIN, async ({ path: newPath }) => {
+  if (!newPath || !newPath.trim()) throw new Error('Path cannot be empty');
+  const cleanPath = newPath.trim();
+  if (!fs.existsSync(cleanPath)) {
+    fs.mkdirSync(cleanPath, { recursive: true });
+  }
+  await setSetting('backupPath', cleanPath);
+  const backupRes = await performHourlyBackup(true);
+  return { path: cleanPath, backup: backupRes };
+});
+
+handle('backup:runNow', ALL, async () => {
+  const res = await performHourlyBackup(true);
+  if (!res.ok) throw new Error(res.error || 'Backup failed');
+  return res;
+});
+
+handle('backup:openFolder', ALL, async () => {
+  const dir = await getBackupDirectory();
+  await shell.openPath(dir);
+  return true;
+});
+
+handle('backup:restore', ADMIN, async ({ filePath }) => {
+  let targetFile = filePath;
+  if (!targetFile) {
+    const win = BrowserWindow.getFocusedWindow();
+    const res = await dialog.showOpenDialog(win, {
+      title: 'Select Backup File to Restore',
+      filters: [{ name: 'Kade POS Backup (*.bak, *.json)', extensions: ['bak', 'json'] }],
+      properties: ['openFile']
+    });
+    if (res.canceled || !res.filePaths || !res.filePaths.length) return { canceled: true };
+    targetFile = res.filePaths[0];
+  }
+
+  if (!fs.existsSync(targetFile)) throw new Error('Backup file not found');
+  const raw = fs.readFileSync(targetFile, 'utf8');
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw new Error('Invalid backup file. The selected file is not a valid Kade POS backup.');
+  }
+  if (!data.tables) throw new Error('Backup file is missing database table structures.');
+
+  const tx = new sql.Transaction(pool);
+  await tx.begin();
+  try {
+    const clearOrder = ['SaleItems', 'Sales', 'GRNItems', 'GRNs', 'Items', 'Payments', 'SubscriptionCodes', 'Settings', 'Users'];
+    for (const t of clearOrder) {
+      if (data.tables[t]) {
+        await new sql.Request(tx).query(`DELETE FROM [${t}]`);
+      }
+    }
+
+    const restoreOrder = ['Users', 'Settings', 'Items', 'Sales', 'SaleItems', 'GRNs', 'GRNItems', 'Payments', 'SubscriptionCodes'];
+    let count = 0;
+    for (const t of restoreOrder) {
+      const rows = data.tables[t] || [];
+      if (!rows.length) continue;
+      const hasId = ['Users', 'Items', 'Sales', 'SaleItems', 'GRNs', 'GRNItems', 'Payments'].includes(t);
+      if (hasId) await new sql.Request(tx).query(`SET IDENTITY_INSERT [${t}] ON`);
+      for (const row of rows) {
+        const cols = Object.keys(row);
+        const rq = new sql.Request(tx);
+        cols.forEach((col, i) => rq.input(`p${i}`, row[col]));
+        const colList = cols.map(c => `[${c}]`).join(',');
+        const paramList = cols.map((_, i) => `@p${i}`).join(',');
+        await rq.query(`INSERT INTO [${t}](${colList}) VALUES(${paramList})`);
+        count++;
+      }
+      if (hasId) await new sql.Request(tx).query(`SET IDENTITY_INSERT [${t}] OFF`);
+    }
+
+    await tx.commit();
+    return { ok: true, file: path.basename(targetFile), totalRecordsRestored: count };
+  } catch (err) {
+    await tx.rollback();
+    throw new Error(`Database restore failed: ${err.message}`);
+  }
+});
+
 /* ---------- Window ---------- */
 function createWindow() {
   const w = new BrowserWindow({
@@ -764,7 +1028,11 @@ function createWindow() {
   w.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
 app.whenReady().then(async () => {
-  try { await initDb(); createWindow(); }
+  try {
+    await initDb();
+    createWindow();
+    initBackupScheduler();
+  }
   catch (e) { dialog.showErrorBox('Database error', `Cannot connect to SQL Server:\n${e.message}`); app.quit(); }
 });
 app.on('window-all-closed', () => app.quit());

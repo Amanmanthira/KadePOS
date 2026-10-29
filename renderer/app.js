@@ -220,6 +220,13 @@ const D = {
   passMinLength: ['Password must be at least 6 characters', 'මුරපදය අවම වශයෙන් අකුරු 6ක් විය යුතුය'],
   passMismatch: ['Passwords do not match', 'මුරපද නොගැලපේ'],
   passUpdated: ['Password updated successfully!', 'මුරපදය සාර්ථකව වෙනස් කරන ලදී!'],
+  backup: ['Database Backup', 'දත්ත උපස්ථය'],
+  backupTitle: ['Automated Database Backup', 'ස්වයංක්‍රීය දත්ත උපස්ථය'],
+  backupDesc: ['Hourly snapshot & single-file daily archival', 'පැයකට වරක් යාවත්කාලීන වන දෛනික උපස්ථ'],
+  backupNow: ['Backup Now', 'දැන් උපස්ථ කරන්න'],
+  selectFolder: ['Change Folder', 'ෆෝල්ඩරය මාරු කරන්න'],
+  openFolder: ['Open Folder', 'ෆෝල්ඩරය විවෘත කරන්න'],
+  restoreBackup: ['Restore Database', 'දත්ත නැවත පිහිටුවන්න'],
   Yes: ['Active', 'ඔව්'],
   No: ['Disabled', 'නැත'],
   Cashier: ['Cashier', 'අයකැමි'],
@@ -278,6 +285,7 @@ const ICON = {
   reports: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
   receipts: '<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>',
   users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
+  backup: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
   subs: '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>'
 };
 
@@ -629,7 +637,8 @@ const SYSTEM_MODULES = [
   { key: 'items', name: 'Inventory & Items', desc: 'Product catalog, pricing, category management & stock levels', icon: ICON.items },
   { key: 'grn', name: 'Goods Received Note (GRN)', desc: 'Supplier stock entry, batch tracking & purchase costs', icon: ICON.grn },
   { key: 'reports', name: 'Financial & Sales Reports', desc: 'Daily revenue, item-wise sales and cashier performance', icon: ICON.reports },
-  { key: 'receipts', name: 'Receipt Settings', desc: 'Thermal printer 58mm/80mm format, header & footer design', icon: ICON.receipts }
+  { key: 'receipts', name: 'Receipt Settings', desc: 'Thermal printer 58mm/80mm format, header & footer design', icon: ICON.receipts },
+  { key: 'backup', name: 'Database Backups', desc: 'Hourly automated database snapshots, directory selection & restore', icon: ICON.backup }
 ];
 
 function userHasPerm(k) {
@@ -638,6 +647,7 @@ function userHasPerm(k) {
   if (me.role === A) return true;
   // User accounts management & subscription settings are restricted to Super Admin only by default
   if (k === 'users' || k === 'subs') return me.role === A;
+  if (k === 'backup') return me.role === A || (me.permissions && me.permissions.split(',').map(s => s.trim().toLowerCase()).includes('backup'));
 
   if (me.permissions) {
     const list = me.permissions.split(',').map(s => s.trim().toLowerCase());
@@ -658,6 +668,7 @@ const TABS = {
   reports: [vReports, null],
   receipts: [vReceiptSettings, null],
   users: [vUsers, null],
+  backup: [vBackup, null],
   subs: [vSubs, null]
 };
 
@@ -3211,7 +3222,234 @@ async function vUsers() {
 }
 
 /* ==========================================================================
-   VIEW 7: SUBSCRIPTION & SUPER ADMIN'S BANK ACCOUNT CONFIGURATION
+   VIEW 7: DATABASE BACKUP (HOURLY AUTO-SYNC / SINGLE FILE PER DAY)
+   ========================================================================== */
+async function vBackup() {
+  const st = await call('backup:getStatus');
+  const formatBytes = b => {
+    if (!b) return '0 B';
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+    return (b / 1048576).toFixed(2) + ' MB';
+  };
+  const timeAgo = iso => {
+    if (!iso) return 'Pending snapshot';
+    const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    if (sec < 60) return 'Just now';
+    if (sec < 3600) return `${Math.floor(sec / 60)} minute(s) ago`;
+    const hrs = Math.floor(sec / 3600);
+    return `${hrs} hour(s) ago`;
+  };
+
+  $('#view').innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
+      <div>
+        <h2 style="margin:0; font-size:22px; font-weight:800; display:flex; align-items:center; gap:8px;">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2">${ICON.backup}</svg>
+          <span>${t('backupTitle')}</span>
+        </h2>
+        <span class="muted small">${t('backupDesc')}</span>
+      </div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn btn-sm btn-ghost" id="btnOpenFolder" style="display:flex; align-items:center; gap:6px;">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <span>${t('openFolder')}</span>
+        </button>
+        <button class="btn btn-sm btn-outline" id="btnRestoreDb" style="display:flex; align-items:center; gap:6px;">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+          <span>${t('restoreBackup')}</span>
+        </button>
+        <button class="btn btn-sm btn-primary" id="btnBackupNow" style="display:flex; align-items:center; gap:6px;">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <span>${t('backupNow')}</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 3 Executive KPI Status Cards -->
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(290px, 1fr)); gap:16px; margin-bottom:20px;">
+      
+      <!-- Card 1: Selected Storage Path -->
+      <div class="fin-stat-card" style="border-left:5px solid var(--brand); padding:20px; display:flex; flex-direction:column; justify-content:space-between; gap:12px;">
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <span class="muted small" style="text-transform:uppercase; font-weight:800; letter-spacing:0.5px;">Selected Backup Folder</span>
+            <span class="pill info">Custom Path</span>
+          </div>
+          <div style="font-weight:800; font-size:13px; color:var(--text-main); margin-top:8px; word-break:break-all; font-family:monospace; background:var(--bg-input); padding:8px 10px; border-radius:8px; border:1px solid var(--border-card);">
+            ${esc(st.backupPath)}
+          </div>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+          <small class="muted">Hourly updates write here</small>
+          <button class="btn btn-sm btn-outline" id="btnChangePath">${t('selectFolder')}</button>
+        </div>
+      </div>
+
+      <!-- Card 2: Hourly Engine Schedule -->
+      <div class="fin-stat-card" style="border-left:5px solid var(--accent-lime); padding:20px; display:flex; flex-direction:column; justify-content:space-between; gap:12px;">
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <span class="muted small" style="text-transform:uppercase; font-weight:800; letter-spacing:0.5px;">Snapshot Frequency</span>
+            <span class="pill ok">● Hourly Active</span>
+          </div>
+          <div style="font-size:20px; font-weight:800; color:var(--text-main); margin-top:8px;">
+            Every 1 Hour (60 min)
+          </div>
+          <div class="muted small" style="margin-top:4px;">
+            Strategy: <b>One file per day</b> (overwrites itself hourly)
+          </div>
+        </div>
+        <div style="background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.2); border-radius:8px; padding:6px 10px; font-size:12px; color:var(--accent-lime); font-weight:700;">
+          ✓ Automated background timer active
+        </div>
+      </div>
+
+      <!-- Card 3: Today's Active Snapshot -->
+      <div class="fin-stat-card" style="border-left:5px solid var(--accent-amber); padding:20px; display:flex; flex-direction:column; justify-content:space-between; gap:12px;">
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <span class="muted small" style="text-transform:uppercase; font-weight:800; letter-spacing:0.5px;">Today's Active File</span>
+            <span class="pill ${st.todayExists ? 'ok' : 'warn'}">${st.todayExists ? 'Created & Updating' : 'Pending'}</span>
+          </div>
+          <div style="font-weight:800; font-size:14.5px; color:var(--text-main); margin-top:8px; font-family:monospace;">
+            ${esc(st.todayFile)}
+          </div>
+          <div style="display:flex; gap:12px; align-items:center; margin-top:6px; font-size:13px;">
+            <span>Size: <b>${formatBytes(st.todaySize)}</b></span>
+            <span>·</span>
+            <span>Last snapshot: <b>${timeAgo(st.todayModified || st.lastBackup?.timestamp)}</b></span>
+          </div>
+        </div>
+        <div class="muted small" style="font-size:11.5px;">
+          ${st.lastBackup?.records ? `📦 ${st.lastBackup.records.toLocaleString()} total database records` : 'Covers all 9 database tables'}
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Smart Notice Banner -->
+    <div style="background:var(--bg-input); border:1px solid var(--border-card); border-radius:14px; padding:14px 18px; margin-bottom:24px; display:flex; align-items:center; gap:12px;">
+      <div style="font-size:22px;">💡</div>
+      <div style="font-size:13px; color:var(--text-main); line-height:1.4;">
+        <b>Daily File Consolidation:</b> The system does not create multiple files across the day. It creates exactly one file for each day (<code>kade_pos_backup_YYYY-MM-DD.bak</code>) and refreshes it every hour with the latest sales, products, and inventory.
+      </div>
+    </div>
+
+    <!-- Daily Backups Archive Table -->
+    <div class="table-card">
+      <div style="padding:16px 20px; border-bottom:1px solid var(--border-card); display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <h3 style="margin:0; font-size:16px; font-weight:800;">Daily Consolidated Backups Archive</h3>
+          <span class="muted small">Daily snapshot archives found in <code>${esc(st.backupPath)}</code></span>
+        </div>
+        <span class="pill info">${st.history?.length || 0} Saved Files</span>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Backup Archive File</th>
+            <th>Archive Date</th>
+            <th>File Size</th>
+            <th>Last Hourly Update</th>
+            <th>Type</th>
+            <th style="text-align:right;">Restore Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${st.history && st.history.length ? st.history.map(h => `
+            <tr style="${h.isToday ? 'background:rgba(91,82,249,0.03);' : ''}">
+              <td>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span style="font-size:18px;">💾</span>
+                  <div>
+                    <b style="font-family:monospace; font-size:13px;">${esc(h.filename)}</b>
+                    ${h.isToday ? '<span class="pill ok" style="margin-left:6px; font-size:10px;">TODAY (LIVE)</span>' : ''}
+                  </div>
+                </div>
+              </td>
+              <td><b>${esc(h.filename.replace('kade_pos_backup_', '').replace('.bak', '').replace('.json', ''))}</b></td>
+              <td><span class="badge">${formatBytes(h.size)}</span></td>
+              <td>${fd(h.modifiedAt)} (${timeAgo(h.modifiedAt)})</td>
+              <td><span class="pill ${h.isToday ? 'ok' : 'info'}">${h.isToday ? 'Live Daily' : 'Daily Archive'}</span></td>
+              <td style="text-align:right;">
+                <button class="btn btn-sm btn-outline btn-restore-file" data-path="${esc(h.path)}">
+                  ↺ Restore
+                </button>
+              </td>
+            </tr>
+          `).join('') : `
+            <tr>
+              <td colspan="6" style="text-align:center; padding:36px;" class="muted">
+                No backup archives found in this directory. Click "Backup Now" to create your first backup!
+              </td>
+            </tr>
+          `}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  $('#btnOpenFolder').onclick = async () => {
+    try {
+      await call('backup:openFolder');
+    } catch (e) {
+      toast(e.message, 1);
+    }
+  };
+
+  $('#btnChangePath').onclick = async () => {
+    try {
+      const res = await call('backup:selectPath');
+      if (!res.canceled) {
+        toast('Backup directory updated! Snapshot saved.');
+        vBackup();
+      }
+    } catch (e) {
+      toast(e.message, 1);
+    }
+  };
+
+  $('#btnBackupNow').onclick = async () => {
+    const btn = $('#btnBackupNow');
+    btn.disabled = true;
+    btn.innerHTML = `Backing up...`;
+    try {
+      const res = await call('backup:runNow');
+      toast(`Backup successful! File: ${res.file} (${formatBytes(res.size)})`);
+      vBackup();
+    } catch (e) {
+      toast(e.message, 1);
+      btn.disabled = false;
+      btn.innerHTML = `⚡ ${t('backupNow')}`;
+    }
+  };
+
+  const triggerRestore = async (filePath) => {
+    const cfm = confirm(`⚠️ WARNING: Restoring from this backup will overwrite current database records with the backup file data.\n\nFile: ${filePath || 'Selected File'}\n\nDo you want to proceed?`);
+    if (!cfm) return;
+    try {
+      const res = await call('backup:restore', { filePath });
+      if (!res.canceled) {
+        toast(`Database restored successfully! (${res.totalRecordsRestored || 0} records)`);
+        vBackup();
+      }
+    } catch (e) {
+      toast(e.message, 1);
+    }
+  };
+
+  $('#btnRestoreDb').onclick = () => triggerRestore(null);
+
+  $('#view').onclick = e => {
+    const rBtn = e.target.closest('.btn-restore-file');
+    if (rBtn) triggerRestore(rBtn.dataset.path);
+  };
+}
+
+/* ==========================================================================
+   VIEW 8: SUBSCRIPTION & SUPER ADMIN'S BANK ACCOUNT CONFIGURATION
    ========================================================================== */
 async function vSubs() {
   const [{ status: s, payments }, codesInfo] = await Promise.all([
@@ -3232,6 +3470,20 @@ async function vSubs() {
         <button class="btn btn-sm" id="cfg">${t('feeCfg')}</button>
         <button class="btn btn-primary btn-sm" id="pay">${t('recPay')}</button>
       </div>
+    </div>
+
+    <!-- Hourly Database Backup Card -->
+    <div class="fin-stat-card" style="margin-bottom:20px; border-left:5px solid var(--brand); padding:20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;">
+      <div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <h3 style="margin:0; font-size:16px; font-weight:800;">💾 Automated Hourly Database Backup</h3>
+          <span class="pill ok">Active (Every Hour)</span>
+        </div>
+        <p style="margin:6px 0 0; font-size:13px; color:var(--text-dim);">
+          Saving one consolidated backup file per day, refreshed every hour with all transactions & inventory.
+        </p>
+      </div>
+      <button class="btn btn-primary btn-sm" id="btnGoBackups">Manage Backups ➔</button>
     </div>
 
     <!-- License State Card -->
@@ -3495,6 +3747,9 @@ async function vSubs() {
       vSubs();
     }
   );
+
+  const goBackupsBtn = $('#btnGoBackups');
+  if (goBackupsBtn) goBackupsBtn.onclick = () => go('backup');
 }
 
 /* Initialize App */
