@@ -19,3 +19,6 @@
    - Live autocomplete product search with category filters, batch tracking, and expiry dates.
 8. Bilingual: English (default) / Sinhala toggle in sidebar and login screen.
 9. First (installation) month is free; billing starts the following month with notifications near the 25th.
+10. **Dual Licensing Model (Subscription vs One-Time Lifetime License)**:
+    - In the Super Admin Subscription window, easily toggle between **Monthly Subscription Mode** and **One-Time Payment (Lifetime License)**.
+    - When turned OFF (One-Time Payment mode), Super Admin bank card details, upcoming payment banners, and renewal code boxes are completely hidden from all client and cashier dashboards.

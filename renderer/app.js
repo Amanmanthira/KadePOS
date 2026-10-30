@@ -190,6 +190,14 @@ const D = {
   installDate: ['Software Installation Date', 'මෘදුකාංගය ස්ථාපනය කළ දිනය'],
   freeInstallMonth: ['Free Installation Month', 'නොමිලේ හිමිවන ස්ථාපන මාසය'],
   freeMonthNote: ['The installation month is completely free. No codes or payments required. Subscription starts next month.', 'ස්ථාපනය කළ මාසය සම්පූර්ණයෙන්ම නොමිලේ. කේත හෝ ගෙවීම් අවශ්‍ය නොවේ. දායකත්වය ඊළඟ මස සිට ආරම්භ වේ.'],
+  licenseModel: ['Licensing Model', 'බලපත්‍ර ආකෘතිය'],
+  subMode: ['Monthly Subscription', 'මාසික දායකත්වය'],
+  lifetimeMode: ['One-Time Payment (Lifetime)', 'එක්වර ගෙවීම (ජීවිත කාලයම)'],
+  subModeTitle: ['Monthly Subscription Active', 'මාසික දායකත්ව ක්‍රමය සක්‍රියයි'],
+  lifetimeModeTitle: ['One-Time Payment Project (Lifetime Access)', 'එක්වර ගෙවූ ව්‍යාපෘතිය (ජීවිත කාලයම වලංගුයි)'],
+  lifetimeBadge: ['LIFETIME LICENSE', 'ජීවිත කාලීන බලපත්‍රය'],
+  lifetimeDesc: ['Client purchased full lifetime license. Monthly subscription warnings, Super Admin bank cards, and renewal codes are completely hidden from client dashboards.', 'සේවාදායකයා පූර්ණ බලපත්‍රය එක්වර ලබාගෙන ඇත. මාසික අනතුරු ඇඟවීම්, බැංකු කාඩ්පත් සහ කේත සේවාදායක පුවරුවෙන් ඉවත් කර ඇත.'],
+  subModeDesc: ['Monthly recurring subscription. Shows Super Admin bank card on client dashboards near the 25th and requires renewal codes.', 'මාසික දායකත්ව ක්‍රමය. 25 වන දිනට ආසන්නව සේවාදායක පුවරුවේ බැංකු කාඩ්පත පෙන්වන අතර අලුත් කිරීමේ කේත අවශ්‍ය වේ.'],
 
   // Reports & Users
   daily: ['Daily Sales Breakdown', 'දෛනික විකුණුම්'],
@@ -603,7 +611,7 @@ $('#logout').onclick = async () => {
 /* Top Banner Notification near the 25th */
 function banner() {
   const b = $('#banner');
-  if (!sub || (sub.state !== 'warning' && sub.state !== 'locked')) return b.classList.add('hide');
+  if (!sub || sub.subEnabled === false || (sub.state !== 'warning' && sub.state !== 'locked')) return b.classList.add('hide');
 
   const d = sub.daysLeft;
   const when = d > 0 ? t('inDays', { n: d }) : d === 0 ? t('today') : t('agoDays', { n: -d });
@@ -888,6 +896,7 @@ async function vDashboard() {
   const currentDueDay = sub?.dueDay || 25;
   const curPeriod = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
   const isFreeMonth = sub?.freeMonth && curPeriod <= sub.freeMonth;
+  const isSubActive = sub?.subEnabled !== false;
 
   const totalCatRevenue = data.categorySales?.reduce((s, c) => s + (+c.Total || 0), 0) || 1;
   const catColors = ['#5b52f9', '#10b981', '#f59e0b', '#ec4899', '#06b6d4', '#8b5cf6'];
@@ -947,7 +956,8 @@ async function vDashboard() {
           </div>
         </div>
 
-        <!-- Card 4: Due Calendar Card (Highlighting 25th) -->
+        <!-- Card 4: Due Calendar Card or Lifetime License Status -->
+        ${isSubActive ? `
         <div class="due-calendar-card">
           <div class="due-cal-header">
             <span>${new Date().toLocaleDateString(lang === 'si' ? 'si-LK' : 'en-US', { weekday: 'long' })}</span>
@@ -961,16 +971,32 @@ async function vDashboard() {
             <div class="cal-day-cell"><span>22</span><span>Thu</span></div>
             <div class="cal-day-cell"><span>23</span><span>Fri</span></div>
             <div class="cal-day-cell"><span>24</span><span>Sat</span></div>
-            <div class="cal-day-cell active-due"><span>25</span><span>DUE</span></div>
+            <div class="cal-day-cell active-due"><span>${currentDueDay}</span><span>DUE</span></div>
             <div class="cal-day-cell"><span>26</span><span>Mon</span></div>
             <div class="cal-day-cell"><span>27</span><span>Tue</span></div>
             <div class="cal-day-cell"><span>28</span><span>Wed</span></div>
           </div>
         </div>
+        ` : `
+        <div class="due-calendar-card" style="border-left: 4px solid var(--accent-lime); justify-content: space-between;">
+          <div class="due-cal-header">
+            <span style="font-size:11.5px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.5px;">License Status</span>
+            <span class="pill ok" style="font-size:10px;">LIFETIME</span>
+          </div>
+          <div style="margin: 4px 0;">
+            <div style="font-size:18px; font-weight:800; color:var(--text-main); letter-spacing:-0.4px;">One-Time Payment</div>
+            <div style="font-size:11.5px; color:var(--text-muted); margin-top:2px;">Perpetual License · Full Access</div>
+          </div>
+          <div style="font-size:10.5px; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center; padding-top:4px; border-top:1px dashed var(--border-card);">
+            <span>📅 Installed: <b>${sub?.installedOn || '—'}</b></span>
+            <span class="pill ok" style="font-size:9px; padding:1px 6px;">NO EXPIRY</span>
+          </div>
+        </div>
+        `}
       </div>
 
-      <!-- Row 2: 3 Columns (Dynamic Real-Data Wave Chart + Super Admin Bank Card + History) -->
-      <div class="dash-middle-row">
+      <!-- Row 2: ${isSubActive ? '3 Columns (Wave Chart + Bank Card + History)' : '2 Columns (Wave Chart + History)'} -->
+      <div class="dash-middle-row" style="${isSubActive ? '' : 'grid-template-columns: 1.8fr 1.2fr;'}">
         <!-- 1. Revenue Real-Data Dynamic Waves Chart -->
         <div class="chart-panel-card">
           <div class="chart-panel-header">
@@ -997,6 +1023,7 @@ async function vDashboard() {
           </div>
         </div>
 
+        ${isSubActive ? `
         <!-- 2. Super Admin Bank Card ("My Cards" from screenshot) -->
         <div class="bank-showcase-panel">
           <div class="panel-header-row">
@@ -1079,6 +1106,7 @@ async function vDashboard() {
             </form>
           </div>
         </div>
+        ` : ''}
 
         <!-- 3. History / Recent Transactions Column with Payment Badges -->
         <div class="history-panel-card">
@@ -1089,11 +1117,13 @@ async function vDashboard() {
 
           <input class="history-search-input" id="histSearch" placeholder="Search invoices…">
 
+          ${isSubActive ? `
           <!-- Upcoming Subscription Payment Notice on 25th -->
           <div style="background:var(--brand-light); border-radius:12px; padding:10px 12px; display:flex; flex-direction:column; gap:2px;">
             <span style="font-size:10.5px; font-weight:800; color:var(--brand); text-transform:uppercase;">${t('upcomingPayments')}</span>
             <b style="font-size:12px; color:var(--text-main);">${t('softwareSubDue')}</b>
           </div>
+          ` : ''}
 
           <div class="history-list-stream" id="histStream">
             ${data.recentSales.length ? data.recentSales.map(s => `
@@ -1194,12 +1224,16 @@ async function vDashboard() {
     </div>
   `;
 
-  // Attach Dashboard events
-  $('#dashViewBankBtn').onclick = showBankModal;
-  $('#dashCardCopyBtn').onclick = () => {
-    navigator.clipboard.writeText((b.accNumber || '8030194935').replace(/\s+/g, ''));
-    toast(t('copied'));
-  };
+  // Attach Dashboard events (guarded when subscription is off)
+  const dashBankBtn = $('#dashViewBankBtn');
+  if (dashBankBtn) dashBankBtn.onclick = showBankModal;
+  const dashCopyBtn = $('#dashCardCopyBtn');
+  if (dashCopyBtn) {
+    dashCopyBtn.onclick = () => {
+      navigator.clipboard.writeText((b.accNumber || '8030194935').replace(/\s+/g, ''));
+      toast(t('copied'));
+    };
+  }
 
   const dashCodeForm = $('#dashActivationForm');
   if (dashCodeForm) {
@@ -3456,19 +3490,51 @@ async function vSubs() {
     call('sub:overview'),
     call('sub:listCodes')
   ]);
+  const isSubActive = s.subEnabled !== false;
   const label = { ok: t('stActive'), warning: t('stWarn'), locked: t('stLocked') }[s.state];
   const b = s.bankDetails || {};
 
   $('#view').innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
       <div>
-        <h2 style="margin:0; font-size:22px; font-weight:800;">${t('subs')}</h2>
-        <span class="muted small">Monthly software licensing, Super Admin bank account & activation codes</span>
+        <h2 style="margin:0; font-size:22px; font-weight:800; display:flex; align-items:center; gap:8px;">
+          <span>⚙️ ${t('subs')} & License Control</span>
+        </h2>
+        <span class="muted small">Configure billing model: Monthly Subscription vs One-Time Payment (Lifetime License)</span>
       </div>
       <div style="display:flex; gap:10px;">
         <button class="btn btn-sm" id="btnBankCfg">${t('bankCfg')}</button>
         <button class="btn btn-sm" id="cfg">${t('feeCfg')}</button>
-        <button class="btn btn-primary btn-sm" id="pay">${t('recPay')}</button>
+        ${isSubActive ? `<button class="btn btn-primary btn-sm" id="pay">${t('recPay')}</button>` : ''}
+      </div>
+    </div>
+
+    <!-- Master Licensing Model Switcher Card -->
+    <div class="panel-card" style="margin-bottom:20px; border:2px solid ${isSubActive ? 'rgba(99,102,241,0.35)' : 'rgba(16,185,129,0.35)'}; background: ${isSubActive ? 'var(--bg-card)' : 'rgba(16,185,129,0.03)'};">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;">
+        <div style="flex:1; min-width:280px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <h3 style="margin:0; font-size:18px; font-weight:800;">Billing & Licensing Model</h3>
+            <span class="pill ${isSubActive ? 'info' : 'ok'}" style="font-size:11px;">
+              ${isSubActive ? '🔄 MONTHLY SUBSCRIPTION ACTIVE' : '💎 ONE-TIME PAYMENT (LIFETIME)'}
+            </span>
+          </div>
+          <p style="margin:6px 0 0; font-size:13px; color:var(--text-muted); line-height:1.45;">
+            ${isSubActive 
+              ? '<b>Default Model:</b> System operates on a monthly recurring subscription. Client dashboards show your bank card and renewal code inputs near the 25th.' 
+              : '<b>One-Time Payment Model:</b> Client paid in full for permanent ownership. <b>Your bank card details, subscription alerts, and renewal boxes are completely hidden from all client dashboards.</b>'}
+          </p>
+        </div>
+
+        <!-- Mode Toggle Segmented Control -->
+        <div style="display:inline-flex; align-items:center; gap:6px; background:var(--bg-input); padding:5px 6px; border-radius:14px; border:1px solid var(--border-card);">
+          <button type="button" class="btn btn-sm ${isSubActive ? 'btn-primary' : 'btn-ghost'}" id="btnSelectSubMode" style="font-weight:800; border-radius:10px;">
+            <span>🔄 Monthly Subscription</span>
+          </button>
+          <button type="button" class="btn btn-sm ${!isSubActive ? 'btn-primary' : 'btn-ghost'}" id="btnSelectLifetimeMode" style="font-weight:800; border-radius:10px; ${!isSubActive ? 'background:linear-gradient(135deg, #10b981 0%, #059669 100%); border-color:#059669; box-shadow:0 4px 14px rgba(16,185,129,0.3);' : ''}">
+            <span>💎 One-Time Payment (Turn OFF Subscription)</span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -3487,6 +3553,7 @@ async function vSubs() {
     </div>
 
     <!-- License State Card -->
+    ${isSubActive ? `
     <div class="fin-stat-card" style="margin-bottom:20px; border-left:5px solid ${s.state === 'ok' ? 'var(--accent-lime)' : s.state === 'warning' ? 'var(--accent-amber)' : 'var(--bad)'};">
       <div>
         <div style="display:flex; align-items:center; gap:10px;">
@@ -3503,13 +3570,33 @@ async function vSubs() {
         <small class="muted">${t('freeMonthNote')}</small>
       </div>
     </div>
+    ` : `
+    <div class="fin-stat-card" style="margin-bottom:20px; border-left:5px solid var(--accent-lime); background:rgba(16,185,129,0.03);">
+      <div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <h3 style="margin:0; font-size:18px; color:var(--text-main);">💎 Perpetual Lifetime License</h3>
+          <span class="pill ok">NO MONTHLY SUBSCRIPTION</span>
+          <span class="pill info">One-Time Project</span>
+        </div>
+        <p style="margin:8px 0 3px; font-size:13.5px; color:var(--text-main);">
+          📅 <b>${t('installDate')}</b>: <b style="color:var(--accent-lime);">${s.installedOn || 'Not Set'}</b> · License Type: <b>Permanent Unlimited (No Expiry)</b>
+        </p>
+        <p style="margin:3px 0 2px; font-size:13px; color:var(--text-muted);">
+          All client terminals run without payment prompts, warning banners, or renewal codes. <b>Your bank account details are hidden from client dashboards.</b>
+        </p>
+      </div>
+    </div>
+    `}
 
     <!-- Super Admin Bank Account Card (What customers see when payment is due) -->
     <div class="bank-showcase-panel" style="margin-bottom:24px;">
       <div class="panel-header-row">
         <div>
-          <h3 class="panel-heading">💳 ${t('superAdminBankDetails')}</h3>
-          <small class="muted">Customers and cashiers see this bank account on the 25th of every month to make payments.</small>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <h3 class="panel-heading">💳 ${t('superAdminBankDetails')}</h3>
+            ${!isSubActive ? `<span class="pill warn" style="font-size:10px;">HIDDEN FROM CLIENT DASHBOARDS</span>` : `<span class="pill ok" style="font-size:10px;">VISIBLE ON CLIENT DASHBOARDS</span>`}
+          </div>
+          <small class="muted">${isSubActive ? 'Customers and cashiers see this bank account on the 25th of every month to make payments.' : 'Subscription is turned OFF: Cashiers and clients will NOT see your bank card on their dashboard.'}</small>
         </div>
         <button class="btn btn-sm btn-primary" id="btnEditBank">Edit My Bank Details</button>
       </div>
@@ -3613,6 +3700,30 @@ async function vSubs() {
       </table>
     </div>
   `;
+
+  $('#btnSelectSubMode').onclick = async () => {
+    if (s.subEnabled !== false) return;
+    try {
+      await call('sub:setMode', { subEnabled: true });
+      await refreshSub();
+      toast('Switched to Monthly Subscription Mode! Client terminals will follow monthly schedule and show your bank details on due dates.');
+      vSubs();
+    } catch (err) {
+      toast(err.message, 1);
+    }
+  };
+
+  $('#btnSelectLifetimeMode').onclick = async () => {
+    if (s.subEnabled === false) return;
+    try {
+      await call('sub:setMode', { subEnabled: false });
+      await refreshSub();
+      toast('Switched to One-Time Payment (Lifetime License)! Subscription is turned OFF and your bank card is now hidden from client dashboards.');
+      vSubs();
+    } catch (err) {
+      toast(err.message, 1);
+    }
+  };
 
   // Attach Activation Codes handlers
   let currentFilter = 'all';
@@ -3720,13 +3831,20 @@ async function vSubs() {
   $('#cfg').onclick = () => formModal(
     'License & Installation Settings',
     [
+      ['subEnabled', 'Licensing Model', 'select', ['Monthly Subscription', 'One-Time Payment (Lifetime)']],
       ['installedOn', t('installDate'), 'date'],
       ['fee', t('feeLkr'), 'number'],
       ['dueDay', t('dueDayIn'), 'number']
     ],
-    { installedOn: s.installedOn || today(), fee: s.fee, dueDay: s.dueDay },
+    {
+      subEnabled: s.subEnabled !== false ? 'Monthly Subscription' : 'One-Time Payment (Lifetime)',
+      installedOn: s.installedOn || today(),
+      fee: s.fee,
+      dueDay: s.dueDay
+    },
     async v => {
-      await call('sub:save', { fee: +v.fee, dueDay: +v.dueDay, installedOn: v.installedOn });
+      const subEnabled = v.subEnabled === 'Monthly Subscription';
+      await call('sub:save', { fee: +v.fee, dueDay: +v.dueDay, installedOn: v.installedOn, subEnabled });
       await refreshSub();
       vSubs();
     }

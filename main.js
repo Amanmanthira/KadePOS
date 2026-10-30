@@ -65,6 +65,7 @@ async function initDb() {
       ('Lime Juice','Beverages',150,60,'assets/food/fresh-lime-juice.jpg'),
       ('Coca-Cola 400ml','Beverages',180,60,'assets/food/coca-cola.jpg')`);
   const defaults = {
+    subEnabled: '1',
     fee: '3000',
     dueDay: '25',
     installedOn: new Date().toISOString(),
@@ -101,6 +102,7 @@ const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')
 
 async function subStatus() {
   const s = await getSettings();
+  const subEnabled = s.subEnabled !== '0';
   const dueDay = +s.dueDay || 25, fee = +s.fee || 3000;
   // Basic clock-rollback protection: never go behind the last date we saw.
   let now = new Date();
@@ -112,7 +114,15 @@ async function subStatus() {
   const installDateStr = `${inst.getFullYear()}-${String(inst.getMonth() + 1).padStart(2, '0')}-${String(inst.getDate()).padStart(2, '0')}`;
   const paid = new Set((await pool.request().query('SELECT DISTINCT Period FROM Payments')).recordset.map(r => r.Period));
   const res = {
-    state: 'ok', fee, dueDay, due: null, period: null, daysLeft: null, nextDue: null, 
+    subEnabled,
+    licenseMode: subEnabled ? 'subscription' : 'lifetime',
+    state: 'ok', 
+    fee, 
+    dueDay, 
+    due: null, 
+    period: null, 
+    daysLeft: null, 
+    nextDue: null, 
     freeMonth: installKey,
     installedOn: installDateStr,
     bankDetails: {
@@ -123,6 +133,13 @@ async function subStatus() {
       bankNotes: s.bankNotes || 'Please state your store name and bill invoice ID as payment reference.'
     }
   };
+
+  // If subscription is turned OFF (One-Time Payment / Lifetime License project):
+  // Never lock or show warnings. Return immediately with full access state!
+  if (!subEnabled) {
+    return res;
+  }
+
   for (let m = -2; m <= 3; m++) {
     const dim = new Date(today.getFullYear(), today.getMonth() + m + 1, 0).getDate();
     const d = new Date(today.getFullYear(), today.getMonth() + m, Math.min(dueDay, dim));
@@ -232,17 +249,27 @@ handle('sub:overview', ADMIN, async () => ({
   status: await subStatus(),
   payments: (await pool.request().query('SELECT TOP 36 * FROM Payments ORDER BY Id DESC')).recordset
 }));
-handle('sub:save', ADMIN, async ({ fee, dueDay, installedOn }) => {
-  if (!(fee >= 0) || !(dueDay >= 1 && dueDay <= 28)) throw new Error('Fee must be >= 0 and due day 1-28');
-  await setSetting('fee', fee);
-  await setSetting('dueDay', Math.floor(dueDay));
+handle('sub:setMode', ADMIN, async ({ subEnabled }) => {
+  const val = subEnabled ? '1' : '0';
+  await setSetting('subEnabled', val);
+  return await subStatus();
+});
+handle('sub:save', ADMIN, async ({ fee, dueDay, installedOn, subEnabled }) => {
+  if (subEnabled !== undefined) {
+    await setSetting('subEnabled', subEnabled ? '1' : '0');
+  }
+  if (fee !== undefined && dueDay !== undefined) {
+    if (!(fee >= 0) || !(dueDay >= 1 && dueDay <= 28)) throw new Error('Fee must be >= 0 and due day 1-28');
+    await setSetting('fee', fee);
+    await setSetting('dueDay', Math.floor(dueDay));
+  }
   if (installedOn) {
     const d = new Date(installedOn);
     if (!isNaN(d.getTime())) {
       await setSetting('installedOn', d.toISOString());
     }
   }
-  return true;
+  return await subStatus();
 });
 handle('sub:saveBank', ADMIN, async ({ bankName, accName, accNumber, bankBranch, bankNotes }) => {
   await setSetting('bankName', (bankName || '').trim());
