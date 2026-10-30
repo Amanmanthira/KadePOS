@@ -83,78 +83,120 @@
     </div>
 
     <div class="auth-card lock-card">
-      <div class="lock-header">
-        <div class="lock-icon-box">
-          <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-        </div>
-        <div>
-          <span class="lock-badge" data-i18n="suspended">TERMINAL SUSPENDED</span>
-          <h2 class="lock-title">Subscription Payment Required</h2>
-        </div>
-      </div>
-
-      <p class="lock-desc" data-i18n="suspendedMsg">
-        The monthly software license is pending payment. Please transfer the subscription fee to the Super Admin's bank account below to reactivate your terminal.
-      </p>
-
-      <!-- Super Admin Bank Account Credit Card Element -->
-      <div class="superadmin-credit-card">
-        <div class="card-hologram-shine"></div>
-        <div class="card-top-row">
-          <span class="card-brand-label">SUPER ADMIN BANK ACCOUNT</span>
-          <span class="card-subscription-tag">DUE: 25th OF MONTH</span>
-        </div>
-        <div class="card-number-row">
-          <span id="lkAccNo">8030194935</span>
-          <button type="button" class="btn-card-copy" id="lkCopyBtn">
-            <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            <span data-i18n="copy">Copy</span>
-          </button>
-        </div>
-        <div class="card-bottom-row">
+      <!-- Normal Subscription Suspension Section -->
+      <div id="lockNormalSection">
+        <div class="lock-header">
+          <div class="lock-icon-box">
+            <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </div>
           <div>
-            <div style="font-size:9.5px; opacity:0.8;">ACCOUNT HOLDER</div>
-            <div class="card-holder-name" id="lkAccName">H.A AMAN MANTHIRA HAPUARACHCHI</div>
-          </div>
-          <div style="text-align:right;">
-            <div style="font-size:9.5px; opacity:0.8;">BANK & BRANCH</div>
-            <b id="lkBankName">Commercial Bank</b> · <span id="lkBankBranch">Gampaha</span>
+            <span class="lock-badge" data-i18n="suspended">TERMINAL SUSPENDED</span>
+            <h2 class="lock-title">Subscription Payment Required</h2>
           </div>
         </div>
-      </div>
 
-      <!-- Vendor Renewal Code Unlock Form -->
-      <form id="lockCodeForm" class="auth-form" style="gap:10px; margin-bottom:14px; background:var(--bg-input); padding:16px; border-radius:14px; border:1px solid rgba(91,82,249,0.3);">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <b style="font-size:12.5px; color:var(--text-main);" data-i18n="enterCode">Enter Monthly Renewal Code</b>
-          <span class="pill ok" style="font-size:10px;">Instant Reactivation</span>
+        <p class="lock-desc" data-i18n="suspendedMsg">
+          The monthly software license is pending payment. Please transfer the subscription fee to the Super Admin's bank account below to reactivate your terminal.
+        </p>
+
+        <!-- Super Admin Bank Account Credit Card Element -->
+        <div class="superadmin-credit-card">
+          <div class="card-hologram-shine"></div>
+          <div class="card-top-row">
+            <span class="card-brand-label">SUPER ADMIN BANK ACCOUNT</span>
+            <span class="card-subscription-tag">DUE: 25th OF MONTH</span>
+          </div>
+          <div class="card-number-row">
+            <span id="lkAccNo">8030194935</span>
+            <button type="button" class="btn-card-copy" id="lkCopyBtn">
+              <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span data-i18n="copy">Copy</span>
+            </button>
+          </div>
+          <div class="card-bottom-row">
+            <div>
+              <div style="font-size:9.5px; opacity:0.8;">ACCOUNT HOLDER</div>
+              <div class="card-holder-name" id="lkAccName">H.A AMAN MANTHIRA HAPUARACHCHI</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:9.5px; opacity:0.8;">BANK & BRANCH</div>
+              <b id="lkBankName">Commercial Bank</b> · <span id="lkBankBranch">Gampaha</span>
+            </div>
+          </div>
         </div>
-        <p class="small muted" style="margin:0; font-size:11.5px;">Paid already? Enter the 16-character code from your vendor to instantly unlock and resume sales.</p>
-        <div style="display:flex; gap:8px;">
-          <input id="lockActivationCode" name="code" placeholder="e.g. KP-XXXX-XXXX-XXXX" style="flex:1; font-family:monospace; font-weight:700; font-size:14px; letter-spacing:1.5px; text-transform:uppercase; text-align:center;" required autocomplete="off">
-          <button type="submit" class="btn btn-primary" id="lockCodeSubmitBtn" style="white-space:nowrap; padding:0 20px;" data-i18n="activateCode">
-            Activate & Unlock
+
+        <!-- Vendor Renewal Code Unlock Form -->
+        <form id="lockCodeForm" class="auth-form" style="gap:10px; margin-bottom:14px; background:var(--bg-input); padding:16px; border-radius:14px; border:1px solid rgba(91,82,249,0.3);">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <b style="font-size:12.5px; color:var(--text-main);" data-i18n="enterCode">Enter Monthly Renewal Code</b>
+            <span class="pill ok" style="font-size:10px;">Instant Reactivation</span>
+          </div>
+          <p class="small muted" style="margin:0; font-size:11.5px;">Paid already? Enter the 10-character secret license code from vendor Aman to instantly unlock. <b>All 10 keys must be entered before submitting (Maximum 2 attempts allowed).</b></p>
+          <div style="display:flex; gap:8px;">
+            <input id="lockActivationCode" name="code" placeholder="10-KEY CODE" maxlength="10" style="flex:1; font-family:monospace; font-weight:700; font-size:15px; letter-spacing:2px; text-transform:uppercase; text-align:center;" required autocomplete="off">
+            <button type="submit" class="btn btn-primary" id="lockCodeSubmitBtn" style="white-space:nowrap; padding:0 20px;" disabled data-i18n="activateCode">
+              Activate & Unlock
+            </button>
+          </div>
+          <div id="lockCodeCharCount" style="font-size:11px; color:var(--text-dim); text-align:right;">0 / 10 keys entered</div>
+        </form>
+
+        <div style="display:flex; align-items:center; gap:8px; margin: 4px 0 12px; color:var(--text-dim); font-size:11px;">
+          <div style="flex:1; height:1px; background:var(--border);"></div>
+          <span style="font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Or Super Admin Override</span>
+          <div style="flex:1; height:1px; background:var(--border);"></div>
+        </div>
+
+        <!-- Super Admin Unlock Form -->
+        <form id="lockForm" class="auth-form" style="gap:10px;">
+          <span class="small muted" data-i18n="overrideNote">Super Admin manual unlock credentials:</span>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <input name="username" placeholder="Super Admin Username" required>
+            <input name="password" type="password" placeholder="Password" required>
+          </div>
+          <button type="submit" class="btn btn-danger btn-block" data-i18n="unlock">
+            Verify & Unlock Terminal
           </button>
-        </div>
-      </form>
-
-      <div style="display:flex; align-items:center; gap:8px; margin: 4px 0 12px; color:var(--text-dim); font-size:11px;">
-        <div style="flex:1; height:1px; background:var(--border);"></div>
-        <span style="font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Or Super Admin Override</span>
-        <div style="flex:1; height:1px; background:var(--border);"></div>
+        </form>
       </div>
 
-      <!-- Super Admin Unlock Form -->
-      <form id="lockForm" class="auth-form" style="gap:10px;">
-        <span class="small muted" data-i18n="overrideNote">Super Admin manual unlock credentials:</span>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-          <input name="username" placeholder="Super Admin Username" required>
-          <input name="password" type="password" placeholder="Password" required>
+      <!-- Security Tamper Lockout Section (Triggered on 2 failed attempts) -->
+      <div id="lockTamperSection" class="hide">
+        <div class="lock-header">
+          <div class="lock-icon-box" style="background:rgba(239,68,68,0.15); color:var(--bad); border:1px solid rgba(239,68,68,0.3);">
+            <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </div>
+          <div>
+            <span class="pill no" style="font-weight:800; letter-spacing:1px; font-size:10.5px;">🚨 SECURITY TAMPER LOCKOUT</span>
+            <h2 class="lock-title" style="color:var(--bad); margin-top:2px;">Terminal Permanently Locked</h2>
+          </div>
         </div>
-        <button type="submit" class="btn btn-danger btn-block" data-i18n="unlock">
-          Verify & Unlock Terminal
-        </button>
-      </form>
+
+        <div style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:12px; padding:14px; margin:16px 0;">
+          <p style="margin:0 0 10px; font-size:12.5px; color:var(--text-main); line-height:1.45;">
+            <b>Tamper Attempt Detected:</b> Maximum 2 invalid license code attempts reached. All normal POS operations, cashier logins, and renewal code submissions are completely blocked.
+          </p>
+          <div style="font-size:12px; color:var(--text-muted); display:flex; flex-direction:column; gap:4px; padding-top:6px; border-top:1px dashed rgba(239,68,68,0.25);">
+            <div>System Vendor & Author: <b style="color:var(--text-main);">Aman Manthira Hapuarachchi</b></div>
+            <div>Commercial Bank: <b style="color:var(--text-main);">8030194935</b> (Gampaha Branch)</div>
+            <div style="color:var(--bad); font-weight:700; margin-top:2px;">Super Admin full name & password credentials are required to unlock.</div>
+          </div>
+        </div>
+
+        <form id="tamperUnlockForm" class="auth-form" style="gap:12px;">
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:11.5px; font-weight:700; color:var(--text-main);">Super Admin Full Name Verification</label>
+            <input id="tamperFullName" name="fullName" placeholder="Super Admin Full Name" required autocomplete="off" style="padding:10px 12px; font-size:13.5px;">
+          </div>
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:11.5px; font-weight:700; color:var(--text-main);">Super Admin Password</label>
+            <input id="tamperPassword" name="password" type="password" placeholder="Super Admin Password" required autocomplete="off" style="padding:10px 12px; font-size:13.5px;">
+          </div>
+          <button type="submit" class="btn btn-danger btn-block btn-lg" id="tamperUnlockBtn" style="font-weight:800; margin-top:4px;">
+            🛡️ Verify Identity & Clear Security Lockout
+          </button>
+        </form>
+      </div>
     </div>
   </section>
 

@@ -196,10 +196,15 @@ async function subStatus() {
   const installKey = `${inst.getFullYear()}-${String(inst.getMonth() + 1).padStart(2, '0')}`;
   const installDateStr = `${inst.getFullYear()}-${String(inst.getMonth() + 1).padStart(2, '0')}-${String(inst.getDate()).padStart(2, '0')}`;
   const paid = new Set((await pool.request().query('SELECT DISTINCT Period FROM Payments')).recordset.map(r => r.Period));
+  const tamperLocked = s.subTamperLocked === '1';
+  const failedAttempts = +s.subFailedAttempts || 0;
+
   const res = {
     subEnabled,
     licenseMode: subEnabled ? 'subscription' : 'lifetime',
-    state: 'ok', 
+    state: tamperLocked ? 'tamper_locked' : 'ok',
+    tamperLocked,
+    failedAttempts,
     fee, 
     dueDay, 
     due: null, 
@@ -216,6 +221,11 @@ async function subStatus() {
       bankNotes: s.bankNotes || 'Please state your store name and bill invoice ID as payment reference.'
     }
   };
+
+  // If tamper locked, return immediately so the security lockout stays active!
+  if (tamperLocked) {
+    return res;
+  }
 
   // If subscription is turned OFF (One-Time Payment / Lifetime License project):
   // Never lock or show warnings. Return immediately with full access state!
@@ -294,7 +304,8 @@ function handle(ch, roles, fn) {
       if (roles) {
         if (!session) throw new Error('Not logged in');
         if (!hasAccess(ch, session, roles)) throw new Error('Permission denied');
-        if (!ch.startsWith('sub:') && (await subStatus()).state === 'locked') throw new Error('SYSTEM_LOCKED');
+        const currSub = await subStatus();
+        if (!ch.startsWith('sub:') && (currSub.state === 'locked' || currSub.state === 'tamper_locked')) throw new Error('SYSTEM_LOCKED');
       }
       return { ok: true, data: await fn(p) };
     } catch (e) { return { ok: false, error: e.message }; }
@@ -329,8 +340,39 @@ handle('sub:override', null, async ({ username, password }) => {
     .query(`SELECT * FROM Users WHERE Username=@u AND Active=1 AND Role='Super Admin'`)).recordset[0];
   if (!u || !bcrypt.compareSync(password || '', u.PasswordHash)) throw new Error('Super Admin credentials required');
   const st = await subStatus();
-  if (st.state === 'locked') await recordPayment(st.period, 0, 'OVERRIDE', 'Manual unlock', u.Username);
+  if (st.state === 'locked' || st.state === 'tamper_locked') {
+    const p = st.period || `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+    await recordPayment(p, 0, 'OVERRIDE', 'Manual unlock', u.Username);
+  }
+  await setSetting('subTamperLocked', '0');
+  await setSetting('subFailedAttempts', '0');
   return true;
+});
+handle('sub:unlockTamper', null, async ({ fullName, password }) => {
+  const normName = String(fullName || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const expectedName = 'aman manthira hapuarachchi';
+
+  if (normName !== expectedName) {
+    throw new Error('Invalid Super Admin Full Name. Security unlock failed.');
+  }
+
+  const u = (await pool.request()
+    .query(`SELECT TOP 1 * FROM Users WHERE Role='Super Admin' AND Active=1`)).recordset[0];
+
+  if (!u || !bcrypt.compareSync(password || '', u.PasswordHash)) {
+    throw new Error('Invalid Super Admin Password. Verification failed.');
+  }
+
+  await setSetting('subTamperLocked', '0');
+  await setSetting('subFailedAttempts', '0');
+
+  const st = await subStatus();
+  if (st.state === 'locked' || st.state === 'tamper_locked') {
+    const p = st.period || `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+    await recordPayment(p, 0, 'OVERRIDE', `Tamper unlock by ${u.FullName || fullName}`, u.Username);
+  }
+
+  return { success: true, message: 'Terminal security lockout cleared successfully.' };
 });
 handle('sub:overview', ADMIN, async () => ({
   status: await subStatus(),
@@ -371,50 +413,78 @@ handle('sub:pay', ADMIN, async ({ period, amount, method, note }) => {
   await recordPayment(period, +amount || 0, method || 'Cash', note, session.username);
 });
 
-/* ---------- Subscription Activation Codes System (50 Codes) ---------- */
-const CODES_FILE = path.join(__dirname, 'subscription-codes.json');
-
-function loadSubscriptionCodes() {
-  try {
-    if (fs.existsSync(CODES_FILE)) {
-      return JSON.parse(fs.readFileSync(CODES_FILE, 'utf8'));
-    }
-  } catch (e) {
-    console.error('Error loading subscription-codes.json:', e.message);
+/* ---------- Secret 10-Character Activation Code System ---------- */
+// Secret Pattern Rule: Exactly 10 characters (alphanumeric), containing exactly three '1's and exactly one 'A'
+function verifySecretCodePattern(rawCode) {
+  const code = String(rawCode || '').trim().toUpperCase().replace(/[\s\-_]/g, '');
+  if (code.length !== 10) {
+    return { valid: false, error: 'Activation code must be exactly 10 alphanumeric characters.' };
   }
-  return [];
+  if (!/^[A-Z0-9]{10}$/.test(code)) {
+    return { valid: false, error: 'Code must only contain letters and numbers (10 characters).' };
+  }
+  const onesCount = (code.match(/1/g) || []).length;
+  const aCount = (code.match(/A/g) || []).length;
+  if (onesCount !== 3 || aCount !== 1) {
+    return { valid: false, error: 'Invalid activation code.' };
+  }
+  return { valid: true, code };
 }
 
-function saveSubscriptionCodes(codes) {
-  try {
-    fs.writeFileSync(CODES_FILE, JSON.stringify(codes, null, 2), 'utf8');
-  } catch (e) {
-    console.error('Error saving subscription-codes.json:', e.message);
+function generateSecretCode() {
+  const chars = 'BCDEFGHIJKLMNOPQRSTUVWXYZ23456789'; // valid characters excluding 1 and A
+  const parts = ['1', '1', '1', 'A'];
+  for (let i = 0; i < 6; i++) {
+    parts.push(chars[Math.floor(Math.random() * chars.length)]);
   }
+  for (let i = parts.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [parts[i], parts[j]] = [parts[j], parts[i]];
+  }
+  return parts.join('');
 }
 
 handle('sub:redeemCode', null, async ({ code }) => {
-  const cleanCode = (code || '').trim().toUpperCase().replace(/[\s_]/g, '-');
-  if (!cleanCode) throw new Error('Please enter an activation code.');
-
-  const codes = loadSubscriptionCodes();
-  const normClean = cleanCode.replace(/-/g, '');
-  const found = codes.find(c => c.code.replace(/-/g, '').toUpperCase() === normClean);
-
-  if (!found) {
-    throw new Error('Invalid activation code. Please check the code provided by your vendor.');
+  const s = await getSettings();
+  if (s.subTamperLocked === '1') {
+    throw new Error('TERMINAL SECURITY LOCKOUT: Terminal is locked due to unauthorized attempts. Contact vendor Aman Manthira Hapuarachchi to unlock.');
   }
 
+  const cleanCode = (code || '').trim().toUpperCase().replace(/[\s\-_]/g, '');
+  if (!cleanCode) {
+    throw new Error('Please enter the 10-character activation code.');
+  }
+
+  // Must enter all 10 keys (cannot submit incomplete or only '111')
+  if (cleanCode.length !== 10) {
+    throw new Error('Activation code must be exactly 10 characters. Please enter all 10 keys before submitting.');
+  }
+
+  const check = verifySecretCodePattern(cleanCode);
+  if (!check.valid) {
+    const currentFailed = (+s.subFailedAttempts || 0) + 1;
+    await setSetting('subFailedAttempts', currentFailed);
+
+    if (currentFailed >= 2) {
+      await setSetting('subTamperLocked', '1');
+      throw new Error('🚨 TERMINAL SECURITY LOCKOUT TRIGGERED! 2 invalid code attempts reached. Terminal is permanently locked. Vendor Aman Manthira Hapuarachchi credentials required to unlock.');
+    } else {
+      const remaining = 2 - currentFailed;
+      throw new Error(`Invalid activation code! WARNING: ${remaining} attempt remaining before terminal security lockout!`);
+    }
+  }
+
+  // Check if code was already used in SQL database
   let isUsedInDb = false;
   try {
     const checkDb = await pool.request()
-      .input('c', sql.NVarChar, found.code)
+      .input('c', sql.NVarChar, cleanCode)
       .query('SELECT 1 FROM SubscriptionCodes WHERE Code=@c');
     if (checkDb.recordset.length > 0) isUsedInDb = true;
   } catch {}
 
-  if (found.used || isUsedInDb) {
-    throw new Error('This activation code has already been redeemed.');
+  if (isUsedInDb) {
+    throw new Error('This activation code has already been redeemed! Each code can only be used once.');
   }
 
   const st = await subStatus();
@@ -442,57 +512,61 @@ handle('sub:redeemCode', null, async ({ code }) => {
 
   try {
     await pool.request()
-      .input('c', sql.NVarChar, found.code)
-      .input('m', sql.Int, found.months || 1)
+      .input('c', sql.NVarChar, cleanCode)
+      .input('m', sql.Int, 1)
       .input('p', sql.NVarChar, targetPeriod)
       .input('u', sql.NVarChar, user)
-      .input('n', sql.NVarChar, `Redeemed ${found.months || 1}-month activation code`)
-      .query('IF NOT EXISTS(SELECT 1 FROM SubscriptionCodes WHERE Code=@c) INSERT INTO SubscriptionCodes(Code,Months,Period,UsedBy,Note) VALUES(@c,@m,@p,@u,@n)');
+      .input('n', sql.NVarChar, 'Activated via vendor secret pattern license code')
+      .query('IF NOT EXISTS(SELECT 1 FROM SubscriptionCodes WHERE Code=@c) INSERT INTO SubscriptionCodes(Code,Months,Period,UsedBy,Note,UsedAt) VALUES(@c,@m,@p,@u,@n,SYSDATETIME())');
   } catch (err) {
     console.error('DB insert into SubscriptionCodes error:', err.message);
   }
 
-  await recordPayment(targetPeriod, st.fee || 3000, 'ACTIVATION_CODE', `Activated via code ${found.code}`, user);
+  await recordPayment(targetPeriod, st.fee || 3000, 'ACTIVATION_CODE', `Activated via code ${cleanCode}`, user);
 
-  found.used = true;
-  found.usedAt = new Date().toISOString();
-  found.usedPeriod = targetPeriod;
-  found.usedBy = user;
-  saveSubscriptionCodes(codes);
+  // Reset failed attempts and tamper lock on successful activation!
+  await setSetting('subFailedAttempts', '0');
+  await setSetting('subTamperLocked', '0');
 
   const updatedStatus = await subStatus();
   return {
     success: true,
-    code: found.code,
+    code: cleanCode,
     period: targetPeriod,
-    months: found.months || 1,
+    months: 1,
     status: updatedStatus
   };
 });
 
-handle('sub:listCodes', ADMIN, async () => {
-  const codes = loadSubscriptionCodes();
-  try {
-    const dbCodes = (await pool.request().query('SELECT Code, UsedAt, Period, UsedBy FROM SubscriptionCodes')).recordset;
-    const dbMap = new Map(dbCodes.map(d => [d.Code.toUpperCase(), d]));
-    codes.forEach(c => {
-      const dbItem = dbMap.get(c.code.toUpperCase());
-      if (dbItem && !c.used) {
-        c.used = true;
-        c.usedAt = dbItem.UsedAt;
-        c.usedPeriod = dbItem.Period;
-        c.usedBy = dbItem.UsedBy;
-      }
-    });
-  } catch {}
+handle('sub:generateCode', ADMIN, async () => {
+  let code = '';
+  for (let attempts = 0; attempts < 100; attempts++) {
+    code = generateSecretCode();
+    const check = await pool.request().input('c', sql.NVarChar, code).query('SELECT 1 FROM SubscriptionCodes WHERE Code=@c');
+    if (check.recordset.length === 0) break;
+  }
+  return { code };
+});
 
-  const usedCount = codes.filter(c => c.used).length;
-  return {
-    total: codes.length,
-    used: usedCount,
-    available: codes.length - usedCount,
-    codes: codes
-  };
+handle('sub:listCodes', ADMIN, async () => {
+  try {
+    const dbCodes = (await pool.request().query('SELECT Code, UsedAt, Period, UsedBy, Note FROM SubscriptionCodes ORDER BY UsedAt DESC')).recordset;
+    return {
+      total: dbCodes.length,
+      used: dbCodes.length,
+      available: 'Unlimited (Dynamic Secret Pattern)',
+      codes: dbCodes.map(d => ({
+        code: d.Code,
+        used: true,
+        usedAt: d.UsedAt,
+        usedPeriod: d.Period,
+        usedBy: d.UsedBy,
+        months: 1
+      }))
+    };
+  } catch (e) {
+    return { total: 0, used: 0, available: 'Unlimited (Dynamic Secret Pattern)', codes: [] };
+  }
 });
 
 /* ---------- Receipt & Store Profile Settings ---------- */

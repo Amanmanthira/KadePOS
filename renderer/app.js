@@ -498,30 +498,49 @@ function showCodeModal() {
         <span style="font-size:20px;">🛡️</span>
         <div>
           <b style="font-size:13px; color:var(--text-main);">${t('activationCode')}</b>
-          <p class="small muted" style="margin:2px 0 0; font-size:11.5px;">Enter the 16-character code from your vendor to instantly renew your subscription and prevent terminal interruption.</p>
+          <p class="small muted" style="margin:2px 0 0; font-size:11.5px;">Enter the 10-character secret license code from vendor Aman to renew your subscription. <b>All 10 keys must be entered before submitting (Maximum 2 attempts allowed).</b></p>
         </div>
       </div>
 
       <form id="modalCodeForm" style="display:flex; flex-direction:column; gap:12px;">
         <label>
-          <span style="font-size:12px; font-weight:700; margin-bottom:6px; display:block;">Renewal Code:</span>
-          <input id="modalCodeInp" name="code" placeholder="${t('codePlaceholder')}" style="font-family:monospace; font-weight:700; font-size:15px; letter-spacing:1.5px; text-transform:uppercase; text-align:center; padding:10px;" required autocomplete="off">
+          <span style="font-size:12px; font-weight:700; margin-bottom:6px; display:block;">10-Character Renewal Code:</span>
+          <input id="modalCodeInp" name="code" placeholder="10-KEY CODE" maxlength="10" style="font-family:monospace; font-weight:700; font-size:15px; letter-spacing:2px; text-transform:uppercase; text-align:center; padding:10px;" required autocomplete="off">
+          <div id="modalCodeCount" style="font-size:11px; color:var(--text-dim); text-align:right; margin-top:4px;">0 / 10 keys entered</div>
         </label>
         <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
           <button type="button" class="btn btn-ghost" data-x>${t('cancel')}</button>
-          <button type="submit" class="btn btn-primary" id="modalCodeBtn">${t('activateCode')}</button>
+          <button type="submit" class="btn btn-primary" id="modalCodeBtn" disabled>${t('activateCode')}</button>
         </div>
       </form>
     </div>
   `);
 
   m.querySelectorAll('[data-x]').forEach(el => el.onclick = m.close);
+  const inp = m.querySelector('#modalCodeInp');
+  const btn = m.querySelector('#modalCodeBtn');
+  const cnt = m.querySelector('#modalCodeCount');
+
+  inp.oninput = () => {
+    const raw = inp.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    inp.value = raw;
+    cnt.textContent = `${raw.length} / 10 keys entered`;
+    if (raw.length === 10) {
+      btn.disabled = false;
+      cnt.style.color = 'var(--accent-lime)';
+    } else {
+      btn.disabled = true;
+      cnt.style.color = 'var(--text-dim)';
+    }
+  };
+
   m.querySelector('#modalCodeForm').onsubmit = async e => {
     e.preventDefault();
-    const inp = m.querySelector('#modalCodeInp');
-    const code = (inp.value || '').trim();
-    if (!code) return;
-    const btn = m.querySelector('#modalCodeBtn');
+    const code = inp.value.trim();
+    if (code.length !== 10) {
+      toast('Please enter all 10 characters before submitting.', 1);
+      return;
+    }
     btn.disabled = true;
     btn.textContent = 'Verifying…';
     try {
@@ -532,8 +551,12 @@ function showCodeModal() {
       if (tab === 'dashboard') vDashboard();
     } catch (err) {
       toast(err.message, 1);
-      btn.disabled = false;
+      btn.disabled = inp.value.length !== 10;
       btn.textContent = t('activateCode');
+      if (err.message.includes('TERMINAL SECURITY LOCKOUT') || err.message.includes('permanently locked')) {
+        m.close();
+        boot();
+      }
     }
   };
 }
@@ -589,7 +612,18 @@ async function boot() {
     return toast(e.message, 1);
   }
   populateLockBankDetails();
-  if (sub.state === 'locked') return screen('lock');
+
+  const isTamper = sub.state === 'tamper_locked' || !!sub.tamperLocked;
+  const isLocked = sub.state === 'locked' || isTamper;
+
+  const normalSec = $('#lockNormalSection');
+  const tamperSec = $('#lockTamperSection');
+  if (normalSec && tamperSec) {
+    normalSec.classList.toggle('hide', isTamper);
+    tamperSec.classList.toggle('hide', !isTamper);
+  }
+
+  if (isLocked) return screen('lock');
   me ? startApp() : screen('login');
 }
 
@@ -624,12 +658,32 @@ $('#lockForm').onsubmit = async e => {
 
 const lcf = $('#lockCodeForm');
 if (lcf) {
+  const inp = $('#lockActivationCode');
+  const btn = $('#lockCodeSubmitBtn');
+  const cnt = $('#lockCodeCharCount');
+
+  if (inp) {
+    inp.oninput = () => {
+      const raw = inp.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      inp.value = raw;
+      if (cnt) cnt.textContent = `${raw.length} / 10 keys entered`;
+      if (raw.length === 10) {
+        btn.disabled = false;
+        if (cnt) cnt.style.color = 'var(--accent-lime)';
+      } else {
+        btn.disabled = true;
+        if (cnt) cnt.style.color = 'var(--text-dim)';
+      }
+    };
+  }
+
   lcf.onsubmit = async e => {
     e.preventDefault();
-    const inp = $('#lockActivationCode');
     const code = (inp.value || '').trim();
-    if (!code) return;
-    const btn = $('#lockCodeSubmitBtn');
+    if (code.length !== 10) {
+      toast('Please enter all 10 characters before submitting.', 1);
+      return;
+    }
     btn.disabled = true;
     btn.textContent = 'Verifying…';
     try {
@@ -639,8 +693,33 @@ if (lcf) {
       await boot();
     } catch (x) {
       toast(x.message, 1);
-      btn.disabled = false;
+      btn.disabled = (inp.value || '').length !== 10;
       btn.textContent = t('activateCode');
+      if (x.message.includes('TERMINAL SECURITY LOCKOUT') || x.message.includes('permanently locked')) {
+        boot();
+      }
+    }
+  };
+}
+
+const tuf = $('#tamperUnlockForm');
+if (tuf) {
+  tuf.onsubmit = async e => {
+    e.preventDefault();
+    const fullName = $('#tamperFullName')?.value || '';
+    const password = $('#tamperPassword')?.value || '';
+    const btn = $('#tamperUnlockBtn');
+    btn.disabled = true;
+    btn.textContent = 'Verifying Credentials…';
+    try {
+      await call('sub:unlockTamper', { fullName, password });
+      toast('Security lockout cleared successfully! Terminal unlocked.');
+      tuf.reset();
+      await boot();
+    } catch (x) {
+      toast(x.message, 1);
+      btn.disabled = false;
+      btn.textContent = '🛡️ Verify Identity & Clear Security Lockout';
     }
   };
 }
@@ -680,7 +759,7 @@ async function refreshSub() {
     sub = await call('sub:status');
     populateLockBankDetails();
     banner();
-    if (sub.state === 'locked') boot();
+    if (sub.state === 'locked' || sub.state === 'tamper_locked' || sub.tamperLocked) boot();
   } catch {}
 }
 
@@ -1299,18 +1378,22 @@ async function vDashboard() {
                 ? `Pay fee (${fmt(sub.fee)}) to the bank above, then enter the code from your vendor to clear warning.`
                 : `Enter vendor activation code after monthly transfer to extend subscription and keep terminal active.`}
             </p>
-            <form id="dashActivationForm" style="display:flex; gap:6px;">
-              <input 
-                id="dashCodeInput" 
-                class="dash-code-inp" 
-                placeholder="${isFreeMonth ? 'Optional advance code' : t('codePlaceholder')}" 
-                maxlength="24" 
-                autocomplete="off"
-                ${isFreeMonth ? '' : 'required'}
-              >
-              <button type="submit" class="btn btn-primary btn-sm" id="dashCodeSubmitBtn" style="white-space:nowrap; padding:0 12px; font-weight:700;">
-                ${t('activateCode')}
-              </button>
+            <form id="dashActivationForm" style="display:flex; flex-direction:column; gap:4px;">
+              <div style="display:flex; gap:6px;">
+                <input 
+                  id="dashCodeInput" 
+                  class="dash-code-inp" 
+                  placeholder="${isFreeMonth ? 'Optional 10-key code' : '10-KEY CODE'}" 
+                  maxlength="10" 
+                  autocomplete="off"
+                  style="text-transform:uppercase; letter-spacing:1px; font-family:monospace; font-weight:700;"
+                  ${isFreeMonth ? '' : 'required'}
+                >
+                <button type="submit" class="btn btn-primary btn-sm" id="dashCodeSubmitBtn" disabled style="white-space:nowrap; padding:0 12px; font-weight:700;">
+                  ${t('activateCode')}
+                </button>
+              </div>
+              <div id="dashCodeCount" style="font-size:10px; color:var(--text-dim); text-align:right;">0 / 10 keys</div>
             </form>
           </div>
         </div>
@@ -1445,24 +1528,45 @@ async function vDashboard() {
 
   const dashCodeForm = $('#dashActivationForm');
   if (dashCodeForm) {
+    const dInp = $('#dashCodeInput');
+    const dBtn = $('#dashCodeSubmitBtn');
+    const dCnt = $('#dashCodeCount');
+    if (dInp) {
+      dInp.oninput = () => {
+        const raw = dInp.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        dInp.value = raw;
+        if (dCnt) dCnt.textContent = `${raw.length} / 10 keys`;
+        if (raw.length === 10) {
+          dBtn.disabled = false;
+          if (dCnt) dCnt.style.color = 'var(--accent-lime)';
+        } else {
+          dBtn.disabled = true;
+          if (dCnt) dCnt.style.color = 'var(--text-dim)';
+        }
+      };
+    }
     dashCodeForm.onsubmit = async e => {
       e.preventDefault();
-      const inp = $('#dashCodeInput');
-      const code = (inp.value || '').trim();
-      if (!code) return;
-      const btn = $('#dashCodeSubmitBtn');
-      btn.disabled = true;
-      btn.textContent = 'Verifying…';
+      const code = (dInp.value || '').trim();
+      if (code.length !== 10) {
+        toast('Please enter all 10 characters before submitting.', 1);
+        return;
+      }
+      dBtn.disabled = true;
+      dBtn.textContent = 'Verifying…';
       try {
         const res = await call('sub:redeemCode', { code });
         toast(t('codeSuccess', { p: res.period }));
-        inp.value = '';
+        dInp.value = '';
         await refreshSub();
         vDashboard();
       } catch (err) {
         toast(err.message, 1);
-        btn.disabled = false;
-        btn.textContent = t('activateCode');
+        dBtn.disabled = (dInp.value || '').length !== 10;
+        dBtn.textContent = t('activateCode');
+        if (err.message.includes('TERMINAL SECURITY LOCKOUT') || err.message.includes('permanently locked')) {
+          boot();
+        }
       }
     };
   }
@@ -7137,16 +7241,22 @@ async function vSubs() {
     <div class="panel-card" style="margin-bottom:24px;">
       <div class="panel-header-row" style="flex-wrap:wrap; gap:10px;">
         <div>
-          <h3 class="panel-heading">🔑 ${t('vendorCodes')}</h3>
-          <small class="muted">50 Vendor renewal codes. Give an unused code to your customer when they pay the subscription fee.</small>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <h3 class="panel-heading" style="margin:0;">🔑 Secret Pattern License Codes</h3>
+            <span class="pill ok" style="font-size:10px;">10-Character Algorithmic</span>
+          </div>
+          <small class="muted">Instant code generator with secret pattern (3 ones & 1 letter A). Anti-cheat system locks terminals on 2 failed attempts.</small>
         </div>
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <button class="btn btn-primary btn-sm" id="btnGenSecretCode" style="font-weight:800; display:flex; align-items:center; gap:6px; box-shadow:0 3px 12px rgba(99,102,241,0.3);">
+            <span>🎲</span>
+            <span>Generate Customer Code</span>
+          </button>
           <div class="theme-switch-pill" style="height:32px; padding:2px;">
             <button type="button" class="theme-switch-btn active" id="codeFilterAll">${t('allCodes')} (${codesInfo.total})</button>
-            <button type="button" class="theme-switch-btn" id="codeFilterAvail">${t('availCodes')} (${codesInfo.available})</button>
             <button type="button" class="theme-switch-btn" id="codeFilterUsed">${t('usedCodes')} (${codesInfo.used})</button>
           </div>
-          <input id="codeSearchInp" placeholder="Search code…" style="width:160px; height:32px; font-size:12px; padding:0 10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text-main);">
+          <input id="codeSearchInp" placeholder="Search redeemed code…" style="width:160px; height:32px; font-size:12px; padding:0 10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text-main);">
         </div>
       </div>
 
@@ -7258,25 +7368,72 @@ async function vSubs() {
 
   renderCodesGrid();
 
+  const btnGen = $('#btnGenSecretCode');
+  if (btnGen) {
+    btnGen.onclick = async () => {
+      try {
+        const res = await call('sub:generateCode');
+        const code = res.code;
+        const m = modal(`
+          <div class="modal-header">
+            <h3 class="modal-title">🎲 Generated Customer Secret Code</h3>
+            <button class="modal-close-x" data-x>✕</button>
+          </div>
+          <div style="padding:16px 0 8px; text-align:center;">
+            <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
+              Valid 1-Month Renewal Secret Code
+            </div>
+            <div style="display:inline-block; font-family:monospace; font-weight:800; font-size:26px; letter-spacing:4px; padding:12px 24px; background:var(--bg-input); border:2px dashed var(--brand); border-radius:12px; color:var(--brand); user-select:all; margin-bottom:12px;">
+              ${code}
+            </div>
+            <div style="display:flex; justify-content:center; gap:8px; margin-bottom:14px; flex-wrap:wrap;">
+              <span class="pill ok" style="font-size:11px;">✓ Exactly Three 1s</span>
+              <span class="pill ok" style="font-size:11px;">✓ Exactly One A</span>
+              <span class="pill ok" style="font-size:11px;">✓ 10 Characters</span>
+            </div>
+            <p class="small muted" style="margin:0 0 16px; font-size:12px; max-width:400px; margin-left:auto; margin-right:auto; line-height:1.45;">
+              Provide this code to your customer after they transfer their subscription fee. Customer enters this 10-character code in the POS terminal to instantly unlock.
+            </p>
+            <div style="display:flex; justify-content:center; gap:10px;">
+              <button class="btn btn-ghost" data-x>${t('close')}</button>
+              <button class="btn btn-primary" id="btnCopyGeneratedCode" style="font-weight:700;">
+                📋 Copy Code to Clipboard
+              </button>
+            </div>
+          </div>
+        `);
+        m.querySelectorAll('[data-x]').forEach(el => el.onclick = m.close);
+        m.querySelector('#btnCopyGeneratedCode').onclick = () => {
+          navigator.clipboard.writeText(code);
+          toast(`Secret Code ${code} copied to clipboard!`);
+        };
+      } catch (err) {
+        toast(err.message, 1);
+      }
+    };
+  }
+
   $('#codeFilterAll').onclick = () => {
     currentFilter = 'all';
     $('#codeFilterAll').classList.add('active');
-    $('#codeFilterAvail').classList.remove('active');
+    if ($('#codeFilterAvail')) $('#codeFilterAvail').classList.remove('active');
     $('#codeFilterUsed').classList.remove('active');
     renderCodesGrid();
   };
-  $('#codeFilterAvail').onclick = () => {
-    currentFilter = 'avail';
-    $('#codeFilterAvail').classList.add('active');
-    $('#codeFilterAll').classList.remove('active');
-    $('#codeFilterUsed').classList.remove('active');
-    renderCodesGrid();
-  };
+  if ($('#codeFilterAvail')) {
+    $('#codeFilterAvail').onclick = () => {
+      currentFilter = 'avail';
+      $('#codeFilterAvail').classList.add('active');
+      $('#codeFilterAll').classList.remove('active');
+      $('#codeFilterUsed').classList.remove('active');
+      renderCodesGrid();
+    };
+  }
   $('#codeFilterUsed').onclick = () => {
     currentFilter = 'used';
     $('#codeFilterUsed').classList.add('active');
     $('#codeFilterAll').classList.remove('active');
-    $('#codeFilterAvail').classList.remove('active');
+    if ($('#codeFilterAvail')) $('#codeFilterAvail').classList.remove('active');
     renderCodesGrid();
   };
   $('#codeSearchInp').oninput = renderCodesGrid;
