@@ -868,8 +868,12 @@ const FOOD_CATALOG = [
   }
 ];
 
-/* Helper: Search and Match Food by Name or Keywords */
-function matchFoodCatalogItem(query) {
+/* Helper: Search and Match Food by Name or Keywords (RESTAURANT MODE ONLY) */
+function matchFoodCatalogItem(query, shopType) {
+  // If active shop is not a restaurant, strictly do not match restaurant food items or food photos
+  const effectiveShop = shopType || (typeof currentShopType !== 'undefined' ? currentShopType : 'restaurant');
+  if (effectiveShop !== 'restaurant') return null;
+
   if (!query || typeof query !== 'string') return null;
   const qClean = query.toLowerCase().trim().replace(/[^a-z0-9\s]/g, ' ');
   const tokens = qClean.split(/\s+/).filter(w => w.length >= 2);
