@@ -1669,8 +1669,8 @@ input:focus, select:focus, textarea:focus {
 /* POS Register Quick Tools Toolbar */
 .pos-register-toolbar {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
   margin: 10px 0 12px;
   padding: 5px;
   background: var(--bg-input);
@@ -3665,6 +3665,328 @@ tfoot td {
     font-size: 12px;
   }
 }
+
+/* ==========================================================================
+   MOBILE RELOADS & AIRTIME (DIALOG, MOBITEL, AIRTEL, HUTCH)
+   ========================================================================== */
+.pos-reload-quick-btn {
+  white-space: nowrap;
+  padding: 10px 14px;
+  font-weight: 800;
+  font-size: 12.5px;
+  border-radius: 14px;
+  border: 1.5px solid var(--border-card);
+  background: var(--bg-card);
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  box-shadow: var(--shadow-subtle);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.pos-reload-quick-btn:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+  background: var(--brand-light);
+  transform: translateY(-1px);
+}
+
+/* Operator Brand Badges */
+.provider-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+.provider-badge.dialog {
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
+  border: 1px solid rgba(220, 38, 38, 0.3);
+}
+.provider-badge.mobitel {
+  background: rgba(37, 99, 235, 0.12);
+  color: #2563eb;
+  border: 1px solid rgba(37, 99, 235, 0.3);
+}
+.provider-badge.airtel {
+  background: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+.provider-badge.hutch {
+  background: rgba(234, 88, 12, 0.12);
+  color: #ea580c;
+  border: 1px solid rgba(234, 88, 12, 0.3);
+}
+
+/* Operator Selection Grid */
+.operator-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.operator-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px 8px;
+  border-radius: 14px;
+  border: 2px solid var(--border-card);
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  text-align: center;
+  position: relative;
+  user-select: none;
+}
+.operator-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(99, 102, 241, 0.4);
+  box-shadow: var(--shadow-card);
+}
+.operator-card.selected {
+  border-color: var(--brand) !important;
+  background: var(--brand-light);
+  box-shadow: 0 4px 14px var(--brand-glow);
+  transform: scale(1.02);
+}
+.operator-card.selected.dialog {
+  border-color: #dc2626 !important;
+  background: rgba(220, 38, 38, 0.08);
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.25);
+}
+.operator-card.selected.mobitel {
+  border-color: #2563eb !important;
+  background: rgba(37, 99, 235, 0.08);
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.25);
+}
+.operator-card.selected.airtel {
+  border-color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.08);
+  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.25);
+}
+.operator-card.selected.hutch {
+  border-color: #ea580c !important;
+  background: rgba(234, 88, 12, 0.08);
+  box-shadow: 0 4px 14px rgba(234, 88, 12, 0.25);
+}
+
+.operator-logo-wrap {
+  width: 100%;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 4px 8px;
+  border: 1.5px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  margin-bottom: 2px;
+}
+.operator-logo-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.operator-card:hover .operator-logo-img {
+  transform: scale(1.06);
+}
+.operator-logo-icon {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+.operator-logo-icon svg {
+  display: block;
+  max-height: 100%;
+  width: auto;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.08));
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.operator-card:hover .operator-logo-icon svg {
+  transform: scale(1.08);
+}
+.operator-name {
+  font-size: 13.5px;
+  font-weight: 900;
+  color: var(--text-main);
+  letter-spacing: -0.2px;
+}
+.operator-prefix-pill {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--bg-input);
+  padding: 2px 6px;
+  border-radius: 99px;
+  border: 1px solid var(--border-card);
+}
+
+/* Reload Type Segmented Control */
+.reload-type-toggle {
+  display: flex;
+  gap: 6px;
+  background: var(--bg-input);
+  padding: 4px;
+  border-radius: 12px;
+  border: 1.5px solid var(--border-card);
+}
+.reload-type-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: transparent;
+  border: 0;
+  border-radius: 9px;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.reload-type-btn:hover {
+  color: var(--text-main);
+}
+.reload-type-btn.active {
+  background: var(--bg-card);
+  color: var(--brand);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* Quick Denominations & Data Packages Grid */
+.reload-denoms-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.denom-pill {
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: var(--bg-input);
+  border: 1.5px solid var(--border-card);
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.denom-pill:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+  background: var(--brand-light);
+  transform: translateY(-1px);
+}
+.denom-pill.active {
+  background: var(--brand);
+  color: #ffffff;
+  border-color: var(--brand);
+  box-shadow: 0 2px 8px var(--brand-glow);
+}
+
+/* Live Ticket Summary Banner in Modal */
+.reload-live-preview {
+  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+  color: #ffffff;
+  padding: 14px 18px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 4px 16px rgba(30, 27, 75, 0.25);
+}
+.reload-preview-num {
+  font-family: monospace;
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+  color: #ffffff;
+}
+.reload-preview-prov {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #c7d2fe;
+}
+.reload-preview-amt {
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: -0.5px;
+  color: #10b981;
+}
+
+/* Reloads KPI Stat Cards in Log View */
+.reloads-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.reload-kpi-card {
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-card);
+  border-radius: 14px;
+  padding: 14px 16px;
+  box-shadow: var(--shadow-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.reload-kpi-card.dialog {
+  border-left: 4px solid #dc2626;
+}
+.reload-kpi-card.mobitel {
+  border-left: 4px solid #2563eb;
+}
+.reload-kpi-card.airtel {
+  border-left: 4px solid #ef4444;
+}
+.reload-kpi-card.hutch {
+  border-left: 4px solid #ea580c;
+}
+.reload-kpi-card.grand {
+  border-left: 4px solid #10b981;
+  background: linear-gradient(to right, rgba(16, 185, 129, 0.05), var(--bg-card));
+}
+.reload-kpi-label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.reload-kpi-val {
+  font-size: 20px;
+  font-weight: 900;
+  color: var(--text-main);
+  letter-spacing: -0.4px;
+}
+.reload-kpi-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 
 
 

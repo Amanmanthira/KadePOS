@@ -33,7 +33,8 @@ const SCHEMA = [
 `IF OBJECT_ID('SaleReturns','U') IS NULL CREATE TABLE SaleReturns(Id INT IDENTITY PRIMARY KEY, ReturnNo NVARCHAR(30) NOT NULL UNIQUE, SaleId INT NOT NULL REFERENCES Sales(Id), InvoiceNo NVARCHAR(30) NOT NULL, CashierId INT NOT NULL REFERENCES Users(Id), RefundTotal DECIMAL(12,2) NOT NULL, RefundMethod NVARCHAR(20) NOT NULL DEFAULT 'Cash', Reason NVARCHAR(250) NULL, CreatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME())`,
 `IF OBJECT_ID('SaleReturnItems','U') IS NULL CREATE TABLE SaleReturnItems(Id INT IDENTITY PRIMARY KEY, ReturnId INT NOT NULL REFERENCES SaleReturns(Id), ItemId INT NOT NULL REFERENCES Items(Id), ItemName NVARCHAR(100) NOT NULL, Qty DECIMAL(12,3) NOT NULL, UnitPrice DECIMAL(12,2) NOT NULL, LineTotal DECIMAL(12,2) NOT NULL, Unit NVARCHAR(20) NULL DEFAULT 'pcs')`,
 `IF OBJECT_ID('SupplierReturns','U') IS NULL CREATE TABLE SupplierReturns(Id INT IDENTITY PRIMARY KEY, ReturnNo NVARCHAR(50) NOT NULL UNIQUE, Supplier NVARCHAR(100) NOT NULL, GrnRef NVARCHAR(50) NULL, TotalAmount DECIMAL(12,2) NOT NULL DEFAULT 0, Reason NVARCHAR(250) NULL, ReturnedBy NVARCHAR(100) NOT NULL, CreatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME())`,
-`IF OBJECT_ID('SupplierReturnItems','U') IS NULL CREATE TABLE SupplierReturnItems(Id INT IDENTITY PRIMARY KEY, ReturnId INT NOT NULL REFERENCES SupplierReturns(Id) ON DELETE CASCADE, ItemId INT NOT NULL REFERENCES Items(Id), ItemName NVARCHAR(100) NOT NULL, Qty DECIMAL(12,3) NOT NULL, UnitCost DECIMAL(12,2) NOT NULL DEFAULT 0, LineTotal DECIMAL(12,2) NOT NULL DEFAULT 0, BatchNo NVARCHAR(50) NULL, Reason NVARCHAR(200) NULL, Unit NVARCHAR(20) NULL DEFAULT 'pcs')`
+`IF OBJECT_ID('SupplierReturnItems','U') IS NULL CREATE TABLE SupplierReturnItems(Id INT IDENTITY PRIMARY KEY, ReturnId INT NOT NULL REFERENCES SupplierReturns(Id) ON DELETE CASCADE, ItemId INT NOT NULL REFERENCES Items(Id), ItemName NVARCHAR(100) NOT NULL, Qty DECIMAL(12,3) NOT NULL, UnitCost DECIMAL(12,2) NOT NULL DEFAULT 0, LineTotal DECIMAL(12,2) NOT NULL DEFAULT 0, BatchNo NVARCHAR(50) NULL, Reason NVARCHAR(200) NULL, Unit NVARCHAR(20) NULL DEFAULT 'pcs')`,
+`IF OBJECT_ID('MobileReloads','U') IS NULL CREATE TABLE MobileReloads(Id INT IDENTITY PRIMARY KEY, ReloadNo NVARCHAR(30) NOT NULL UNIQUE, Provider NVARCHAR(30) NOT NULL, MobileNo NVARCHAR(20) NOT NULL, ReloadType NVARCHAR(30) NOT NULL DEFAULT 'Call Reload', PackageDetails NVARCHAR(100) NULL, Amount DECIMAL(12,2) NOT NULL, SaleId INT NULL REFERENCES Sales(Id), InvoiceNo NVARCHAR(30) NULL, CashierId INT NOT NULL REFERENCES Users(Id), CashierName NVARCHAR(100) NOT NULL, PaymentMethod NVARCHAR(20) NOT NULL DEFAULT 'Cash', ShiftId INT NULL, Status NVARCHAR(20) NOT NULL DEFAULT 'Completed', Notes NVARCHAR(200) NULL, CreatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME())`
 ];
 
 async function initDb() {
@@ -61,7 +62,8 @@ async function initDb() {
     `IF COL_LENGTH('Users', 'Permissions') IS NULL ALTER TABLE Users ADD Permissions NVARCHAR(500) NULL`,
     `IF OBJECT_ID('SubscriptionCodes','U') IS NULL CREATE TABLE SubscriptionCodes(Code NVARCHAR(50) PRIMARY KEY, Months INT NOT NULL DEFAULT 1, UsedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME(), Period NVARCHAR(10) NOT NULL, UsedBy NVARCHAR(100) NOT NULL, Note NVARCHAR(200) NULL)`,
     `IF OBJECT_ID('SupplierReturns','U') IS NULL CREATE TABLE SupplierReturns(Id INT IDENTITY PRIMARY KEY, ReturnNo NVARCHAR(50) NOT NULL UNIQUE, Supplier NVARCHAR(100) NOT NULL, GrnRef NVARCHAR(50) NULL, TotalAmount DECIMAL(12,2) NOT NULL DEFAULT 0, Reason NVARCHAR(250) NULL, ReturnedBy NVARCHAR(100) NOT NULL, CreatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME())`,
-    `IF OBJECT_ID('SupplierReturnItems','U') IS NULL CREATE TABLE SupplierReturnItems(Id INT IDENTITY PRIMARY KEY, ReturnId INT NOT NULL REFERENCES SupplierReturns(Id) ON DELETE CASCADE, ItemId INT NOT NULL REFERENCES Items(Id), ItemName NVARCHAR(100) NOT NULL, Qty DECIMAL(12,3) NOT NULL, UnitCost DECIMAL(12,2) NOT NULL DEFAULT 0, LineTotal DECIMAL(12,2) NOT NULL DEFAULT 0, BatchNo NVARCHAR(50) NULL, Reason NVARCHAR(200) NULL, Unit NVARCHAR(20) NULL DEFAULT 'pcs')`
+    `IF OBJECT_ID('SupplierReturnItems','U') IS NULL CREATE TABLE SupplierReturnItems(Id INT IDENTITY PRIMARY KEY, ReturnId INT NOT NULL REFERENCES SupplierReturns(Id) ON DELETE CASCADE, ItemId INT NOT NULL REFERENCES Items(Id), ItemName NVARCHAR(100) NOT NULL, Qty DECIMAL(12,3) NOT NULL, UnitCost DECIMAL(12,2) NOT NULL DEFAULT 0, LineTotal DECIMAL(12,2) NOT NULL DEFAULT 0, BatchNo NVARCHAR(50) NULL, Reason NVARCHAR(200) NULL, Unit NVARCHAR(20) NULL DEFAULT 'pcs')`,
+    `IF OBJECT_ID('MobileReloads','U') IS NULL CREATE TABLE MobileReloads(Id INT IDENTITY PRIMARY KEY, ReloadNo NVARCHAR(30) NOT NULL UNIQUE, Provider NVARCHAR(30) NOT NULL, MobileNo NVARCHAR(20) NOT NULL, ReloadType NVARCHAR(30) NOT NULL DEFAULT 'Call Reload', PackageDetails NVARCHAR(100) NULL, Amount DECIMAL(12,2) NOT NULL, SaleId INT NULL REFERENCES Sales(Id), InvoiceNo NVARCHAR(30) NULL, CashierId INT NOT NULL REFERENCES Users(Id), CashierName NVARCHAR(100) NOT NULL, PaymentMethod NVARCHAR(20) NOT NULL DEFAULT 'Cash', ShiftId INT NULL, Status NVARCHAR(20) NOT NULL DEFAULT 'Completed', Notes NVARCHAR(200) NULL, CreatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME())`
   ];
 
   for (const m of migrations) {
@@ -874,7 +876,49 @@ handle('sales:checkout', ALL, async ({ lines, paid, paymentMethod, billDiscount,
   const tx = new sql.Transaction(pool); await tx.begin();
   try {
     let subtotal = 0; const out = [];
-    for (const l of lines) { // prices come from the DB, never from the UI
+    let reloadServiceId = null;
+    for (const l of lines) {
+      if (l.isReload) {
+        if (!reloadServiceId) {
+          const rItem = (await new sql.Request(tx).query("SELECT TOP 1 Id FROM Items WHERE Name = 'Mobile Reload Service'")).recordset[0];
+          reloadServiceId = rItem ? rItem.Id : null;
+          if (!reloadServiceId) {
+            const insItem = (await new sql.Request(tx).query(`
+              INSERT INTO Items(Name, Category, Price, Stock, Unit, IsLoose, Active)
+              OUTPUT inserted.Id
+              VALUES('Mobile Reload Service', 'Services', 0, 999999, 'reload', 0, 1)
+            `)).recordset[0];
+            reloadServiceId = insItem.Id;
+          }
+        }
+        const reloadPrice = r2(Math.max(0, +l.price || 0));
+        if (reloadPrice <= 0) throw new Error('Invalid reload amount');
+        const disc = Math.min(100, Math.max(0, +l.disc || 0));
+        const lt = r2(reloadPrice * 1 * (1 - disc / 100));
+        subtotal += lt;
+        out.push({
+          id: reloadServiceId,
+          name: l.name || `${l.provider || 'Mobile'} Reload - ${l.mobileNo || ''}`,
+          price: reloadPrice,
+          qty: 1,
+          disc,
+          total: lt,
+          unit: 'reload',
+          isLoose: false,
+          isReload: true,
+          reloadInfo: l.reloadInfo || {
+            provider: l.provider || 'Dialog',
+            mobileNo: l.mobileNo || '',
+            reloadType: l.reloadType || 'Call Reload',
+            packageDetails: l.packageDetails || '',
+            amount: reloadPrice,
+            notes: l.notes || ''
+          }
+        });
+        continue;
+      }
+
+      // prices come from the DB, never from the UI
       const qty = Math.round((parseFloat(l.qty) || 0) * 1000) / 1000;
       const disc = Math.min(100, Math.max(0, +l.disc || 0));
       if (!(qty > 0.0001)) throw new Error('Invalid quantity');
@@ -954,11 +998,32 @@ handle('sales:checkout', ALL, async ({ lines, paid, paymentMethod, billDiscount,
     
     const invoiceNo = 'INV-' + String(sale).padStart(6, '0');
     await new sql.Request(tx).input('i', sql.NVarChar, invoiceNo).input('id', sql.Int, sale).query('UPDATE Sales SET InvoiceNo=@i WHERE Id=@id');
-    for (const l of out)
+    for (const l of out) {
       await new sql.Request(tx).input('s', sql.Int, sale).input('i', sql.Int, l.id).input('n', sql.NVarChar, l.name)
         .input('q', sql.Decimal(12, 3), l.qty).input('u', sql.Decimal(12, 2), l.price).input('d', sql.Decimal(5, 2), l.disc).input('t', sql.Decimal(12, 2), l.total)
         .input('unit', sql.NVarChar, l.unit || 'pcs')
         .query('INSERT INTO SaleItems(SaleId,ItemId,ItemName,Qty,UnitPrice,DiscountPct,LineTotal,Unit) VALUES(@s,@i,@n,@q,@u,@d,@t,@unit)');
+
+      if (l.isReload && l.reloadInfo) {
+        const rNo = 'RLD-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+        await new sql.Request(tx)
+          .input('rno', sql.NVarChar, rNo)
+          .input('p', sql.NVarChar, l.reloadInfo.provider || 'Dialog')
+          .input('m', sql.NVarChar, l.reloadInfo.mobileNo || '')
+          .input('t', sql.NVarChar, l.reloadInfo.reloadType || 'Call Reload')
+          .input('pkg', sql.NVarChar, l.reloadInfo.packageDetails || null)
+          .input('a', sql.Decimal(12, 2), l.price)
+          .input('sid', sql.Int, sale)
+          .input('inv', sql.NVarChar, invoiceNo)
+          .input('cid', sql.Int, session.id)
+          .input('cname', sql.NVarChar, session.fullName || session.username)
+          .input('pm', sql.NVarChar, method)
+          .input('shift', sql.Int, shiftId ? +shiftId : null)
+          .input('notes', sql.NVarChar, l.reloadInfo.notes || null)
+          .query(`INSERT INTO MobileReloads(ReloadNo, Provider, MobileNo, ReloadType, PackageDetails, Amount, SaleId, InvoiceNo, CashierId, CashierName, PaymentMethod, ShiftId, Status, Notes)
+                  VALUES(@rno, @p, @m, @t, @pkg, @a, @sid, @inv, @cid, @cname, @pm, @shift, 'Completed', @notes)`);
+      }
+    }
     await tx.commit();
     const st = await getSettings();
     return {
@@ -1519,6 +1584,36 @@ handle('reports:supplierReturnItems', MA, async p => (await rng(p, pool.request(
   ORDER BY sr.Id DESC, sri.Id ASC
 `)).recordset);
 
+const RELOAD_RANGE = 'mr.CreatedAt >= CAST(@f AS DATE) AND mr.CreatedAt < DATEADD(day,1,CAST(@t AS DATE))';
+
+handle('reports:reloads', ALL, async p => (await rng(p, pool.request()).query(`
+  SELECT CONVERT(VARCHAR(10), mr.CreatedAt, 120) [Date],
+         mr.Provider,
+         COUNT(mr.Id) TransactionsCount,
+         ISNULL(SUM(mr.Amount), 0) TotalAmount,
+         ROUND(ISNULL(SUM(mr.Amount), 0) * 0.04, 2) EstCommission
+  FROM MobileReloads mr
+  WHERE ${RELOAD_RANGE}
+  GROUP BY CONVERT(VARCHAR(10), mr.CreatedAt, 120), mr.Provider
+  ORDER BY [Date] DESC, mr.Provider ASC
+`)).recordset);
+
+handle('reports:reloadItems', ALL, async p => (await rng(p, pool.request()).query(`
+  SELECT mr.ReloadNo,
+         CONVERT(VARCHAR(16), mr.CreatedAt, 120) [DateTime],
+         mr.Provider,
+         mr.MobileNo,
+         mr.ReloadType,
+         ISNULL(mr.PackageDetails, '—') PackageDetails,
+         mr.Amount,
+         mr.CashierName Cashier,
+         ISNULL(mr.InvoiceNo, '—') InvoiceNo,
+         mr.PaymentMethod
+  FROM MobileReloads mr
+  WHERE ${RELOAD_RANGE}
+  ORDER BY mr.Id DESC
+`)).recordset);
+
 /* ---------- Dashboard & GRN ---------- */
 handle('dashboard:overview', ALL, async () => {
   const q = () => pool.request();
@@ -1870,6 +1965,172 @@ handle('supplierReturns:create', MA, async ({ returnNo, supplier, grnRef, reason
   }
 });
 
+/* ---------- Mobile Reloads (Dialog, Mobitel, Airtel, Hutch) ---------- */
+handle('reloads:list', ALL, async ({ from = null, to = null, provider = null, q = '' } = {}) => {
+  let query = `SELECT mr.*, CONVERT(VARCHAR(16), mr.CreatedAt, 120) FormattedTime 
+               FROM MobileReloads mr 
+               WHERE 1=1 `;
+  const req = pool.request();
+  if (from) {
+    req.input('from', sql.Date, from);
+    query += ` AND CAST(mr.CreatedAt AS DATE) >= @from`;
+  }
+  if (to) {
+    req.input('to', sql.Date, to);
+    query += ` AND CAST(mr.CreatedAt AS DATE) <= @to`;
+  }
+  if (provider && provider !== 'All') {
+    req.input('provider', sql.NVarChar, provider);
+    query += ` AND mr.Provider = @provider`;
+  }
+  if (q && q.trim()) {
+    req.input('q', sql.NVarChar, `%${q.trim()}%`);
+    query += ` AND (mr.MobileNo LIKE @q OR mr.ReloadNo LIKE @q OR mr.InvoiceNo LIKE @q OR mr.CashierName LIKE @q)`;
+  }
+  query += ` ORDER BY mr.Id DESC`;
+  const reloads = (await req.query(query)).recordset;
+
+  // Compute live KPIs
+  const totalAmount = reloads.reduce((s, r) => s + (+r.Amount || 0), 0);
+  const totalCount = reloads.length;
+  const dialogAmount = reloads.filter(r => r.Provider === 'Dialog').reduce((s, r) => s + (+r.Amount || 0), 0);
+  const dialogCount = reloads.filter(r => r.Provider === 'Dialog').length;
+  const mobitelAmount = reloads.filter(r => r.Provider === 'Mobitel').reduce((s, r) => s + (+r.Amount || 0), 0);
+  const mobitelCount = reloads.filter(r => r.Provider === 'Mobitel').length;
+  const airtelAmount = reloads.filter(r => r.Provider === 'Airtel').reduce((s, r) => s + (+r.Amount || 0), 0);
+  const airtelCount = reloads.filter(r => r.Provider === 'Airtel').length;
+  const hutchAmount = reloads.filter(r => r.Provider === 'Hutch').reduce((s, r) => s + (+r.Amount || 0), 0);
+  const hutchCount = reloads.filter(r => r.Provider === 'Hutch').length;
+  const estCommission = r2(totalAmount * 0.04);
+
+  return {
+    reloads,
+    kpis: {
+      totalAmount,
+      totalCount,
+      dialogAmount,
+      dialogCount,
+      mobitelAmount,
+      mobitelCount,
+      airtelAmount,
+      airtelCount,
+      hutchAmount,
+      hutchCount,
+      estCommission
+    }
+  };
+});
+
+handle('reloads:recent', ALL, async () => {
+  return (await pool.request().query(`
+    SELECT TOP 30 mr.*, CONVERT(VARCHAR(16), mr.CreatedAt, 120) FormattedTime 
+    FROM MobileReloads mr 
+    ORDER BY mr.Id DESC
+  `)).recordset;
+});
+
+handle('reloads:create', ALL, async ({ provider, mobileNo, reloadType = 'Call Reload', packageDetails = '', amount, paymentMethod = 'Cash', notes = '', shiftId = null }) => {
+  const prov = (provider || 'Dialog').trim();
+  const mob = (mobileNo || '').trim().replace(/\s+/g, '');
+  const amt = r2(+amount || 0);
+  if (!mob) throw new Error('Mobile / Account number is required');
+  if (!(amt > 0)) throw new Error('Reload amount must be greater than LKR 0.00');
+
+  const tx = new sql.Transaction(pool);
+  await tx.begin();
+  try {
+    let reloadServiceId = null;
+    const rItem = (await new sql.Request(tx).query("SELECT TOP 1 Id FROM Items WHERE Name = 'Mobile Reload Service'")).recordset[0];
+    reloadServiceId = rItem ? rItem.Id : null;
+    if (!reloadServiceId) {
+      const insItem = (await new sql.Request(tx).query(`
+        INSERT INTO Items(Name, Category, Price, Stock, Unit, IsLoose, Active)
+        OUTPUT inserted.Id
+        VALUES('Mobile Reload Service', 'Services', 0, 999999, 'reload', 0, 1)
+      `)).recordset[0];
+      reloadServiceId = insItem.Id;
+    }
+
+    const method = (paymentMethod || 'Cash').trim();
+    const cashAmt = method === 'Cash' ? amt : 0;
+    const cardAmt = method === 'Card' ? amt : 0;
+
+    if (shiftId) {
+      await new sql.Request(tx)
+        .input('sid', sql.Int, shiftId)
+        .input('cs', sql.Decimal(12, 2), cashAmt)
+        .input('cd', sql.Decimal(12, 2), cardAmt)
+        .query('UPDATE Shifts SET CashSales = CashSales + @cs, CardSales = CardSales + @cd WHERE Id=@sid');
+    }
+
+    const saleInsert = (await new sql.Request(tx)
+      .input('c', sql.Int, session.id)
+      .input('t', sql.Decimal(12, 2), amt)
+      .input('p', sql.Decimal(12, 2), amt)
+      .input('b', sql.Decimal(12, 2), 0)
+      .input('m', sql.NVarChar, method)
+      .input('ca', sql.Decimal(12, 2), cashAmt)
+      .input('cda', sql.Decimal(12, 2), cardAmt)
+      .input('sid', sql.Int, shiftId ? +shiftId : null)
+      .query(`INSERT INTO Sales(CashierId,Total,Paid,Balance,PaymentMethod,Discount,CashAmount,CardAmount,ShiftId,Status)
+              OUTPUT inserted.Id
+              VALUES(@c,@t,@p,@b,@m,0,@ca,@cda,@sid,'Completed')`)).recordset[0];
+    const saleId = saleInsert.Id;
+    const invoiceNo = 'INV-R' + String(saleId).padStart(6, '0');
+    await new sql.Request(tx).input('i', sql.NVarChar, invoiceNo).input('id', sql.Int, saleId).query('UPDATE Sales SET InvoiceNo=@i WHERE Id=@id');
+
+    const itemName = `${prov} ${reloadType} - ${mob}${packageDetails ? ` (${packageDetails})` : ''}`;
+    await new sql.Request(tx)
+      .input('s', sql.Int, saleId)
+      .input('i', sql.Int, reloadServiceId)
+      .input('n', sql.NVarChar, itemName)
+      .input('q', sql.Decimal(12, 3), 1)
+      .input('u', sql.Decimal(12, 2), amt)
+      .input('t', sql.Decimal(12, 2), amt)
+      .query("INSERT INTO SaleItems(SaleId,ItemId,ItemName,Qty,UnitPrice,DiscountPct,LineTotal,Unit) VALUES(@s,@i,@n,@q,@u,0,@t,'reload')");
+
+    const reloadNo = 'RLD-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+    const reloadInsert = (await new sql.Request(tx)
+      .input('rno', sql.NVarChar, reloadNo)
+      .input('p', sql.NVarChar, prov)
+      .input('m', sql.NVarChar, mob)
+      .input('t', sql.NVarChar, reloadType)
+      .input('pkg', sql.NVarChar, packageDetails || null)
+      .input('a', sql.Decimal(12, 2), amt)
+      .input('sid', sql.Int, saleId)
+      .input('inv', sql.NVarChar, invoiceNo)
+      .input('cid', sql.Int, session.id)
+      .input('cname', sql.NVarChar, session.fullName || session.username)
+      .input('pm', sql.NVarChar, method)
+      .input('shift', sql.Int, shiftId ? +shiftId : null)
+      .input('notes', sql.NVarChar, notes || null)
+      .query(`INSERT INTO MobileReloads(ReloadNo, Provider, MobileNo, ReloadType, PackageDetails, Amount, SaleId, InvoiceNo, CashierId, CashierName, PaymentMethod, ShiftId, Status, Notes)
+              OUTPUT inserted.*
+              VALUES(@rno, @p, @m, @t, @pkg, @a, @sid, @inv, @cid, @cname, @pm, @shift, 'Completed', @notes)`)).recordset[0];
+
+    await tx.commit();
+    const st = await getSettings();
+    return {
+      success: true,
+      reload: reloadInsert,
+      invoiceNo,
+      createdAt: new Date().toISOString(),
+      cashier: session.fullName,
+      lines: [{ id: reloadServiceId, name: itemName, price: amt, qty: 1, disc: 0, total: amt, unit: 'reload' }],
+      subtotal: amt,
+      discount: 0,
+      total: amt,
+      paid: amt,
+      balance: 0,
+      paymentMethod: method,
+      shopSettings: st
+    };
+  } catch (err) {
+    await tx.rollback().catch(() => {});
+    throw err;
+  }
+});
+
 /* ---------- Automated Database Backup Engine (Hourly / Single File Per Day) ---------- */
 let backupTimer = null;
 let lastBackupInfo = {
@@ -1923,6 +2184,7 @@ async function performHourlyBackup(isManual = false) {
       'GRNItems',
       'SupplierReturns',
       'SupplierReturnItems',
+      'MobileReloads',
       'Payments',
       'SubscriptionCodes'
     ];
@@ -2104,19 +2366,19 @@ handle('backup:restore', ADMIN, async ({ filePath }) => {
   const tx = new sql.Transaction(pool);
   await tx.begin();
   try {
-    const clearOrder = ['SupplierReturnItems', 'SupplierReturns', 'SaleReturnItems', 'SaleReturns', 'SaleItems', 'Sales', 'CustomerPayments', 'Customers', 'PettyCash', 'Shifts', 'GRNItems', 'GRNs', 'Items', 'Categories', 'Payments', 'SubscriptionCodes', 'Settings', 'Users'];
+    const clearOrder = ['MobileReloads', 'SupplierReturnItems', 'SupplierReturns', 'SaleReturnItems', 'SaleReturns', 'SaleItems', 'Sales', 'CustomerPayments', 'Customers', 'PettyCash', 'Shifts', 'GRNItems', 'GRNs', 'Items', 'Categories', 'Payments', 'SubscriptionCodes', 'Settings', 'Users'];
     for (const t of clearOrder) {
       if (data.tables[t]) {
         await new sql.Request(tx).query(`DELETE FROM [${t}]`);
       }
     }
 
-    const restoreOrder = ['Users', 'Settings', 'Categories', 'Items', 'Shifts', 'PettyCash', 'Customers', 'CustomerPayments', 'Sales', 'SaleItems', 'SaleReturns', 'SaleReturnItems', 'GRNs', 'GRNItems', 'SupplierReturns', 'SupplierReturnItems', 'Payments', 'SubscriptionCodes'];
+    const restoreOrder = ['Users', 'Settings', 'Categories', 'Items', 'Shifts', 'PettyCash', 'Customers', 'CustomerPayments', 'Sales', 'SaleItems', 'MobileReloads', 'SaleReturns', 'SaleReturnItems', 'GRNs', 'GRNItems', 'SupplierReturns', 'SupplierReturnItems', 'Payments', 'SubscriptionCodes'];
     let count = 0;
     for (const t of restoreOrder) {
       const rows = data.tables[t] || [];
       if (!rows.length) continue;
-      const hasId = ['Users', 'Categories', 'Items', 'Shifts', 'PettyCash', 'Customers', 'CustomerPayments', 'Sales', 'SaleItems', 'SaleReturns', 'SaleReturnItems', 'GRNs', 'GRNItems', 'SupplierReturns', 'SupplierReturnItems', 'Payments'].includes(t);
+      const hasId = ['Users', 'Categories', 'Items', 'Shifts', 'PettyCash', 'Customers', 'CustomerPayments', 'Sales', 'SaleItems', 'MobileReloads', 'SaleReturns', 'SaleReturnItems', 'GRNs', 'GRNItems', 'SupplierReturns', 'SupplierReturnItems', 'Payments'].includes(t);
       if (hasId) await new sql.Request(tx).query(`SET IDENTITY_INSERT [${t}] ON`);
       for (const row of rows) {
         const cols = Object.keys(row);

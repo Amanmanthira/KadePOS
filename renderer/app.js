@@ -17,6 +17,7 @@ const D = {
   // Nav Menu
   dashboard: ['Dashboard', 'උපකරණ පුවරුව'],
   pos: ['POS Terminal', 'විකුණුම් (POS)'],
+  reloads: ['Mobile Reloads', 'ජංගම දුරකථන රීලෝඩ්'],
   items: ['Inventory', 'භාණ්ඩ'],
   grn: ['GRN Receiving', 'භාණ්ඩ ලැබීම් (GRN)'],
   reports: ['Reports', 'වාර්තා'],
@@ -316,6 +317,7 @@ const C = 'Cashier', M = 'Store Manager', A = 'Super Admin';
 const ICON = {
   dashboard: '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
   pos: '<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><path d="M7 8h10M7 12h5"/>',
+  reloads: '<rect x="5" y="2" width="14" height="20" rx="3"/><line x1="12" y1="18" x2="12.01" y2="18"/><path d="M10 6h4"/>',
   items: '<path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
   grn: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>',
   reports: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
@@ -775,6 +777,7 @@ async function refreshSub() {
 
 const SYSTEM_MODULES = [
   { key: 'pos', name: 'POS Terminal', desc: 'Cashier checkout, rapid barcode billing, discounts & receipts', icon: ICON.pos },
+  { key: 'reloads', name: 'Mobile Reloads & Airtime', desc: 'Process and track Dialog, Mobitel, Airtel, and Hutch reloads and data packages', icon: ICON.reloads },
   { key: 'dashboard', name: 'Dashboard Overview', desc: 'Summary metrics, sales KPIs, revenue wave charts & alerts', icon: ICON.dashboard },
   { key: 'items', name: 'Inventory & Items', desc: 'Product catalog, pricing, category management & stock levels', icon: ICON.items },
   { key: 'customers', name: 'Customer Credit Accounts', desc: 'Customer account directory, credit balances, credit limits & payment ledger', icon: ICON.customers },
@@ -800,8 +803,8 @@ function userHasPerm(k) {
     return list.includes(k.toLowerCase());
   }
   // Role defaults when no custom permissions are set
-  if (me.role === M) return ['dashboard', 'pos', 'items', 'customers', 'grn', 'reports', 'receipts', 'help'].includes(k);
-  if (me.role === C) return ['pos', 'dashboard', 'customers', 'help'].includes(k);
+  if (me.role === M) return ['dashboard', 'pos', 'reloads', 'items', 'customers', 'grn', 'reports', 'receipts', 'help'].includes(k);
+  if (me.role === C) return ['pos', 'reloads', 'dashboard', 'customers', 'help'].includes(k);
   return false;
 }
 
@@ -809,6 +812,7 @@ function userHasPerm(k) {
 const TABS = {
   dashboard: [vDashboard, 2],
   pos: [vPos, null],
+  reloads: [vReloads, null],
   items: [vItems, null],
   customers: [vCustomers, null],
   grn: [vGrn, null],
@@ -1650,6 +1654,16 @@ function renderStandardReceiptHtml(r, cfg = {}) {
       <div class="tr-meta-row">
         <span><b>CASHIER:</b> ${esc(r.cashier || me?.fullName || 'Cashier')}</span>
       </div>
+
+      ${r.reload ? `
+      <div style="background:#f4f4f5; border:1px dashed #000; padding:6px 8px; margin:6px 0; font-size:11px; text-align:left; color:#000;">
+        <div style="font-weight:900; text-align:center; font-size:11.5px; margin-bottom:3px; letter-spacing:0.5px;">*** MOBILE RELOAD SLIP ***</div>
+        <div style="display:flex; justify-content:space-between;"><span>NETWORK:</span><b>${esc(r.reload.Provider).toUpperCase()}</b></div>
+        <div style="display:flex; justify-content:space-between;"><span>MOBILE NO:</span><b style="font-family:monospace; font-size:12px;">${esc(r.reload.MobileNo)}</b></div>
+        <div style="display:flex; justify-content:space-between;"><span>TYPE:</span><b>${esc(r.reload.ReloadType)}${r.reload.PackageDetails ? ` (${esc(r.reload.PackageDetails)})` : ''}</b></div>
+        <div style="display:flex; justify-content:space-between;"><span>RELOAD REF:</span><code>${esc(r.reload.ReloadNo)}</code></div>
+      </div>
+      ` : ''}
 
       <hr class="tr-divider-dashed">
 
@@ -3269,6 +3283,318 @@ async function showBarcodeGeneratorModal(selectedItem = null) {
 }
 
 /* ==========================================================================
+   MOBILE RELOADS & AIRTIME (DIALOG, MOBITEL, AIRTEL, HUTCH)
+   ========================================================================== */
+const SRI_LANKA_TELCOS = {
+  Dialog: {
+    name: 'Dialog',
+    prefixes: ['077', '076', '074'],
+    color: '#dc2626',
+    cssClass: 'dialog',
+    logoUrl: 'assets/telcos/dialog.png',
+    denominations: [50, 100, 200, 300, 500, 1000, 2000]
+  },
+  Mobitel: {
+    name: 'Mobitel',
+    prefixes: ['071', '070'],
+    color: '#2563eb',
+    cssClass: 'mobitel',
+    logoUrl: 'assets/telcos/mobitel.png',
+    denominations: [50, 100, 200, 300, 500, 1000, 2000]
+  },
+  Airtel: {
+    name: 'Airtel',
+    prefixes: ['075'],
+    color: '#ef4444',
+    cssClass: 'airtel',
+    logoUrl: 'assets/telcos/airtel.png',
+    denominations: [50, 100, 200, 300, 500, 1000]
+  },
+  Hutch: {
+    name: 'Hutch',
+    prefixes: ['078', '072'],
+    color: '#ea580c',
+    cssClass: 'hutch',
+    logoUrl: 'assets/telcos/hutch.png',
+    denominations: [50, 100, 200, 300, 500, 1000]
+  }
+};
+
+function detectProviderFromPrefix(mobileNo) {
+  const clean = String(mobileNo || '').replace(/\D/g, '');
+  for (const [key, conf] of Object.entries(SRI_LANKA_TELCOS)) {
+    if (conf.prefixes.some(p => clean.startsWith(p))) {
+      return key;
+    }
+  }
+  return null;
+}
+
+function showReloadModal(defaultMobile = '', onComplete = null) {
+  let selectedProvider = 'Dialog';
+  let selectedType = 'Call Reload'; // 'Call Reload', 'Data Reload', 'Bill Payment'
+  let reloadAmount = 100;
+
+  if (defaultMobile) {
+    const detected = detectProviderFromPrefix(defaultMobile);
+    if (detected) selectedProvider = detected;
+  }
+
+  const m = modal(`
+    <div class="modal-header">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span style="font-size:26px;">📱</span>
+        <div>
+          <h3 class="modal-title" style="margin:0;">Mobile Reload & Airtime</h3>
+          <small class="muted">Dialog · Mobitel · Airtel · Hutch (Fast & Simple)</small>
+        </div>
+      </div>
+      <button class="modal-close-x" data-x>✕</button>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:14px; max-height:560px; overflow-y:auto; padding:4px;">
+      <!-- 1. Select Telco Operator -->
+      <div>
+        <label class="field-label" style="margin-bottom:6px;">1. Select Network Operator</label>
+        <div class="operator-grid" id="operatorGrid">
+          ${Object.entries(SRI_LANKA_TELCOS).map(([key, op]) => `
+            <div class="operator-card ${op.cssClass} ${key === selectedProvider ? 'selected' : ''}" data-provider="${key}">
+              <div class="operator-logo-wrap">
+                <img src="${op.logoUrl}" alt="${op.name}" class="operator-logo-img">
+              </div>
+              <div class="operator-name">${op.name}</div>
+              <span class="operator-prefix-pill">${op.prefixes.join(' / ')}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <!-- 2. Mobile Number Input with Auto Detection -->
+      <div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <label class="field-label" style="margin:0;">2. Mobile Number *</label>
+          <span id="autoDetectHint" class="provider-badge ${SRI_LANKA_TELCOS[selectedProvider].cssClass}">
+            <img src="${SRI_LANKA_TELCOS[selectedProvider].logoUrl}" style="height:13px; width:auto; vertical-align:middle; object-fit:contain; border-radius:2px; margin-right:4px;">
+            Operator: ${selectedProvider}
+          </span>
+        </div>
+        <div style="position:relative;">
+          <input id="reloadMobileInput" type="tel" maxlength="12" placeholder="07XXXXXXXX (e.g. 0771234567)" value="${esc(defaultMobile)}" autofocus style="font-size:16px; font-weight:800; font-family:monospace; letter-spacing:1px;">
+        </div>
+      </div>
+
+      <!-- 3. Reload Type: Call vs Data vs Bill -->
+      <div>
+        <label class="field-label" style="margin-bottom:6px;">3. Reload Type</label>
+        <div class="reload-type-toggle">
+          <button type="button" class="reload-type-btn active" data-type="Call Reload">
+            <span>📞</span> <span>Call Reload</span>
+          </button>
+          <button type="button" class="reload-type-btn" data-type="Data Reload">
+            <span>🌐</span> <span>Data Reload</span>
+          </button>
+          <button type="button" class="reload-type-btn" data-type="Bill Payment">
+            <span>📺</span> <span>Bill Payment</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 4. Reload Amount (Quick Pills & Direct Input) -->
+      <div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <label class="field-label" style="margin:0;">4. Reload Amount (LKR) *</label>
+          <small class="muted">Click a quick amount or type below</small>
+        </div>
+
+        <div class="reload-denoms-wrap" id="reloadDenomsWrap" style="margin-bottom:10px;">
+          ${[50, 100, 200, 300, 500, 1000, 2000].map(d => `
+            <button type="button" class="denom-pill ${reloadAmount === d ? 'active' : ''}" data-val="${d}">
+              LKR ${d}
+            </button>
+          `).join('')}
+        </div>
+
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-weight:900; font-size:16px; color:var(--text-muted);">LKR</span>
+          <input id="reloadAmountInput" type="number" min="10" step="1" value="${reloadAmount}" style="font-size:18px; font-weight:900; color:var(--brand); flex:1;">
+        </div>
+      </div>
+
+      <!-- Live Ticket Summary Banner -->
+      <div class="reload-live-preview">
+        <div>
+          <div class="reload-preview-prov" id="previewProvider">${selectedProvider.toUpperCase()} · ${selectedType.toUpperCase()}</div>
+          <div class="reload-preview-num" id="previewMobile">${defaultMobile || '07X XXX XXXX'}</div>
+          <small id="previewPackageDesc" style="font-size:11px; opacity:0.85;">${selectedType}</small>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:10px; font-weight:800; text-transform:uppercase; opacity:0.8;">Total Amount</div>
+          <div class="reload-preview-amt" id="previewAmount">LKR ${(+reloadAmount).toFixed(2)}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dual Checkout Actions -->
+    <div class="modal-actions" style="margin-top:16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+      <button type="button" class="btn btn-ghost" data-x>${t('cancel')}</button>
+      
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button type="button" class="btn btn-outline" id="btnAddToBill" style="font-weight:800; border-color:var(--brand); color:var(--brand);">
+          ➕ Add to Current Bill
+        </button>
+        <button type="button" class="btn btn-primary" id="btnInstantReload" style="font-weight:800; background:linear-gradient(135deg, #10b981 0%, #059669 100%);">
+          ⚡ Instant Reload Sale
+        </button>
+      </div>
+    </div>
+  `, true);
+
+  m.querySelectorAll('[data-x]').forEach(el => el.onclick = m.close);
+
+  const updatePreview = () => {
+    const mob = m.querySelector('#reloadMobileInput').value.trim();
+    const amt = Math.max(0, parseFloat(m.querySelector('#reloadAmountInput').value) || 0);
+    const provConf = SRI_LANKA_TELCOS[selectedProvider];
+
+    m.querySelector('#previewProvider').textContent = `${selectedProvider.toUpperCase()} · ${selectedType.toUpperCase()}`;
+    m.querySelector('#previewMobile').textContent = mob || '07X XXX XXXX';
+    m.querySelector('#previewAmount').textContent = 'LKR ' + amt.toFixed(2);
+    m.querySelector('#previewPackageDesc').textContent = selectedType;
+
+    const hint = m.querySelector('#autoDetectHint');
+    if (hint) {
+      hint.className = `provider-badge ${provConf.cssClass}`;
+      hint.innerHTML = `<img src="${provConf.logoUrl}" style="height:13px; width:auto; vertical-align:middle; object-fit:contain; border-radius:2px; margin-right:4px;"> Operator: ${selectedProvider}`;
+    }
+  };
+
+  // Operator click
+  m.querySelectorAll('.operator-card').forEach(card => {
+    card.onclick = () => {
+      selectedProvider = card.dataset.provider;
+      m.querySelectorAll('.operator-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      updatePreview();
+    };
+  });
+
+  // Reload Type Switcher (Call Reload vs Data Reload vs Bill Payment)
+  m.querySelectorAll('.reload-type-btn').forEach(btn => {
+    btn.onclick = () => {
+      selectedType = btn.dataset.type;
+      m.querySelectorAll('.reload-type-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      updatePreview();
+    };
+  });
+
+  // Quick Amount Pills
+  m.querySelectorAll('.denom-pill').forEach(btn => {
+    btn.onclick = () => {
+      m.querySelectorAll('.denom-pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      reloadAmount = +btn.dataset.val;
+      m.querySelector('#reloadAmountInput').value = reloadAmount;
+      updatePreview();
+    };
+  });
+
+  // Phone input formatting & auto prefix detection
+  m.querySelector('#reloadMobileInput').oninput = e => {
+    const val = e.target.value.replace(/[^0-9]/g, '');
+    e.target.value = val;
+    const detected = detectProviderFromPrefix(val);
+    if (detected && detected !== selectedProvider) {
+      selectedProvider = detected;
+      m.querySelectorAll('.operator-card').forEach(c => {
+        c.classList.toggle('selected', c.dataset.provider === selectedProvider);
+      });
+    }
+    updatePreview();
+  };
+
+  m.querySelector('#reloadAmountInput').oninput = e => {
+    reloadAmount = Math.max(0, parseFloat(e.target.value) || 0);
+    m.querySelectorAll('.denom-pill').forEach(btn => {
+      btn.classList.toggle('active', +btn.dataset.val === reloadAmount);
+    });
+    updatePreview();
+  };
+
+  // Action: Add to Current POS Bill
+  m.querySelector('#btnAddToBill').onclick = () => {
+    const mob = m.querySelector('#reloadMobileInput').value.trim();
+    const amt = Math.max(0, parseFloat(m.querySelector('#reloadAmountInput').value) || 0);
+    if (mob.length < 9) {
+      return toast('Please enter a valid 10-digit mobile number (e.g. 0771234567)', 1);
+    }
+    if (amt <= 0) {
+      return toast('Please enter a reload amount greater than LKR 0.00', 1);
+    }
+
+    const itemName = `${selectedProvider} ${selectedType} - ${mob}`;
+
+    cart.push({
+      id: 0,
+      name: itemName,
+      price: amt,
+      qty: 1,
+      disc: 0,
+      stock: 999999,
+      unit: 'reload',
+      isLoose: false,
+      isReload: true,
+      reloadProvider: selectedProvider,
+      reloadMobile: mob,
+      reloadType: selectedType,
+      reloadPackage: selectedType,
+      reloadNotes: `${selectedProvider} ${selectedType} ${mob}`
+    });
+
+    m.close();
+    toast(`Added ${selectedProvider} ${selectedType} (LKR ${amt.toFixed(2)}) to current bill!`);
+    if (typeof onComplete === 'function') onComplete();
+    if (tab === 'pos') {
+      vPos();
+    }
+  };
+
+  // Action: Instant Direct Reload Sale
+  m.querySelector('#btnInstantReload').onclick = async () => {
+    const mob = m.querySelector('#reloadMobileInput').value.trim();
+    const amt = Math.max(0, parseFloat(m.querySelector('#reloadAmountInput').value) || 0);
+    if (mob.length < 9) {
+      return toast('Please enter a valid 10-digit mobile number (e.g. 0771234567)', 1);
+    }
+    if (amt <= 0) {
+      return toast('Please enter a reload amount greater than LKR 0.00', 1);
+    }
+
+    try {
+      const activeShift = await call('shifts:current').catch(() => null);
+      const res = await call('reloads:create', {
+        provider: selectedProvider,
+        mobileNo: mob,
+        reloadType: selectedType,
+        packageDetails: selectedType,
+        amount: amt,
+        paymentMethod: 'Cash',
+        notes: `Instant ${selectedProvider} ${selectedType}`,
+        shiftId: activeShift ? activeShift.Id : null
+      });
+      m.close();
+      toast(`Instant Reload Completed (Ref: ${res.reload.ReloadNo})`);
+      receipt(res);
+      if (typeof onComplete === 'function') onComplete();
+    } catch (err) {
+      toast(err.message, 1);
+    }
+  };
+
+  updatePreview();
+}
+
+/* ==========================================================================
    VIEW 2: POS TERMINAL (RAPID KEYBOARD WORKFLOW & ENTERPRISE REGISTER)
    ========================================================================== */
 async function vPos() {
@@ -3303,13 +3629,17 @@ async function vPos() {
     <div class="pos-layout">
       <!-- Left: Fast Catalog & Search Section -->
       <section class="pos-catalog">
-        <!-- Search Bar with Instant Type / Scan Hint -->
+        <!-- Search Bar with Instant Type / Scan Hint & Mobile Reload Shortcut -->
         <div class="pos-search-bar">
           <div class="pos-search-bar-wrap">
             <svg class="pos-search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input id="q" placeholder="${esc(currentShopProfile?.searchPlaceholder || t('searchPos'))}" autofocus autocomplete="off">
             <span class="pos-shortcut-hint-pill">Type / Scan</span>
           </div>
+          <button type="button" class="pos-reload-quick-btn" id="posTopReloadBtn" title="Mobile Reloads & Airtime (Dialog, Mobitel, Airtel, Hutch) · Shortcut: F6">
+            <span>📱</span>
+            <span>Reload (F6)</span>
+          </button>
         </div>
 
         <!-- Category Chips -->
@@ -3345,11 +3675,16 @@ async function vPos() {
           </div>
         </div>
 
-        <!-- POS Register Quick Toolbar (Shift, Hold, Held, Bills) in a dedicated modern 4-button strip -->
+        <!-- POS Register Quick Toolbar (Shift, Reload, Hold, Held, Bills) in a dedicated modern 5-button strip -->
         <div class="pos-register-toolbar">
           <button type="button" class="reg-tool-btn ${activeShift ? 'active-shift' : ''}" id="posShiftBtn" title="Shift Management & Cash Reconciliation">
             <span class="rt-status-dot ${activeShift ? 'online' : 'offline'}"></span>
             <span class="rt-label">${activeShift ? `Shift #${activeShift.Id}` : 'Shift'}</span>
+          </button>
+
+          <button type="button" class="reg-tool-btn" id="posReloadBtn" title="Mobile Reloads & Airtime (Dialog, Mobitel, Airtel, Hutch) · F6">
+            <span class="rt-icon">📱</span>
+            <span class="rt-label">Reload</span>
           </button>
 
           <button type="button" class="reg-tool-btn" id="posHoldBtn" title="Park current customer cart">
@@ -3660,23 +3995,40 @@ async function vPos() {
         <div class="cart-line-top">
           <div>
             <div class="cart-line-name">
-              ${esc(l.name)}
-              ${l.isLoose ? `<span class="tile-loose-indicator" title="Loose item">⚖️</span>` : ''}
+              ${l.isReload ? `
+                <span class="provider-badge ${String(l.reloadProvider || '').toLowerCase()}">📱 ${esc(l.reloadProvider || 'RELOAD')}</span>
+                ${esc(l.name)}
+              ` : `
+                ${esc(l.name)}
+                ${l.isLoose ? `<span class="tile-loose-indicator" title="Loose item">⚖️</span>` : ''}
+              `}
             </div>
-            <div class="cart-line-meta">@ LKR ${l.price.toFixed(2)} / ${esc(l.unit || 'pcs')} · In Stock: ${Number.isInteger(+l.stock) ? l.stock : (+l.stock).toFixed(3)} ${esc(l.unit || 'pcs')}</div>
+            <div class="cart-line-meta">
+              ${l.isReload ? `
+                Mobile: <b style="font-family:monospace; color:var(--text-main); font-size:12px;">${esc(l.reloadMobile)}</b> · ${esc(l.reloadType || 'Reload')}${l.reloadPackage ? ` (${esc(l.reloadPackage)})` : ''}
+              ` : `
+                @ LKR ${l.price.toFixed(2)} / ${esc(l.unit || 'pcs')} · In Stock: ${Number.isInteger(+l.stock) ? l.stock : (+l.stock).toFixed(3)} ${esc(l.unit || 'pcs')}
+              `}
+            </div>
           </div>
           <button type="button" class="cart-line-del" data-rm="${i}" title="Remove item">✕</button>
         </div>
 
         <div class="cart-line-controls">
-          <div class="qty-stepper">
-            <button type="button" class="qty-step-btn" data-step="${l.isLoose ? '-0.1' : '-1'}" data-i="${i}">−</button>
-            <input type="number" min="0.001" step="${l.isLoose ? '0.001' : '1'}" max="${l.stock}" value="${l.isLoose ? (Number.isInteger(+l.qty) ? l.qty : (+l.qty).toFixed(3)) : l.qty}" class="qty-input-box" data-i="${i}" data-f="qty">
-            <button type="button" class="qty-step-btn" data-step="${l.isLoose ? '0.1' : '1'}" data-i="${i}">+</button>
-            <span class="cart-unit-tag ${l.isLoose ? 'loose-tag' : ''}" data-measure-idx="${i}" title="${l.isLoose ? 'Click to adjust weight/measure' : ''}">
-              ${esc(l.unit || 'pcs')}
-            </span>
-          </div>
+          ${l.isReload ? `
+            <div style="font-size:12px; font-weight:800; color:var(--text-muted); display:flex; align-items:center; gap:4px; padding:4px 8px; background:var(--bg-card); border-radius:8px; border:1px solid var(--border-card);">
+              <span>QTY: 1 reload</span>
+            </div>
+          ` : `
+            <div class="qty-stepper">
+              <button type="button" class="qty-step-btn" data-step="${l.isLoose ? '-0.1' : '-1'}" data-i="${i}">−</button>
+              <input type="number" min="0.001" step="${l.isLoose ? '0.001' : '1'}" max="${l.stock}" value="${l.isLoose ? (Number.isInteger(+l.qty) ? l.qty : (+l.qty).toFixed(3)) : l.qty}" class="qty-input-box" data-i="${i}" data-f="qty">
+              <button type="button" class="qty-step-btn" data-step="${l.isLoose ? '0.1' : '1'}" data-i="${i}">+</button>
+              <span class="cart-unit-tag ${l.isLoose ? 'loose-tag' : ''}" data-measure-idx="${i}" title="${l.isLoose ? 'Click to adjust weight/measure' : ''}">
+                ${esc(l.unit || 'pcs')}
+              </span>
+            </div>
+          `}
 
           <div class="cart-line-disc-wrap">
             <span>Disc %:</span>
@@ -3777,6 +4129,8 @@ async function vPos() {
 
   $('#posPrintToggle').onclick = togglePrint;
   $('#posShiftBtn').onclick = () => showShiftModal();
+  if ($('#posReloadBtn')) $('#posReloadBtn').onclick = () => showReloadModal('', () => drawCart());
+  if ($('#posTopReloadBtn')) $('#posTopReloadBtn').onclick = () => showReloadModal('', () => drawCart());
   $('#posHoldBtn').onclick = () => holdCurrentBill();
   $('#posHeldBillsBtn').onclick = () => showHeldBillsModal();
   $('#posRecentBillsBtn').onclick = () => showRecentBillsModal();
@@ -3952,7 +4306,19 @@ async function vPos() {
 
     try {
       const r = await call('sales:checkout', {
-        lines: cart.map(l => ({ id: l.id, qty: l.qty, disc: l.disc })),
+        lines: cart.map(l => ({
+          id: l.id,
+          qty: l.qty,
+          disc: l.disc,
+          price: l.price,
+          name: l.name,
+          isReload: Boolean(l.isReload),
+          provider: l.reloadProvider,
+          mobileNo: l.reloadMobile,
+          reloadType: l.reloadType,
+          packageDetails: l.reloadPackage,
+          notes: l.reloadNotes
+        })),
         paid: finalPaid,
         paymentMethod: posPaymentMethod,
         billDiscount: disc,
@@ -4342,6 +4708,7 @@ async function vPos() {
     if (e.key === 'F1') { e.preventDefault(); const qEl = $('#q'); if (qEl) { qEl.focus(); qEl.select(); isNavigatingGrid = false; updateTileFocus(); } return; }
     if (e.key === 'F3') { e.preventDefault(); showRecentBillsModal(); return; }
     if (e.key === 'F4') { e.preventDefault(); holdCurrentBill(); return; }
+    if (e.key === 'F6') { e.preventDefault(); showReloadModal('', () => drawCart()); return; }
     if (e.key === 'F8') { e.preventDefault(); togglePrint(); return; }
     if (e.key === 'F9') { e.preventDefault(); showShiftModal(); return; }
   };
@@ -4400,6 +4767,288 @@ function receipt(r) {
     }
   };
   window.addEventListener('keydown', onKey);
+}
+
+/* ==========================================================================
+   VIEW: MOBILE RELOADS LOG & RECONCILIATION (DIALOG, MOBITEL, AIRTEL, HUTCH)
+   ========================================================================== */
+async function vReloads() {
+  const pad = n => String(n).padStart(2, '0');
+  const dNow = new Date();
+  const todayStr = `${dNow.getFullYear()}-${pad(dNow.getMonth() + 1)}-${pad(dNow.getDate())}`;
+
+  let fromDate = todayStr;
+  let toDate = todayStr;
+  let providerFilter = 'All';
+  let searchQuery = '';
+
+  const loadData = async () => {
+    try {
+      const data = await call('reloads:list', {
+        from: fromDate,
+        to: toDate,
+        provider: providerFilter,
+        q: searchQuery
+      });
+      renderView(data);
+    } catch (err) {
+      toast(err.message, 1);
+    }
+  };
+
+  const renderView = ({ reloads, kpis }) => {
+    $('#view').innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
+        <div>
+          <h2 style="margin:0; font-size:22px; font-weight:800; display:flex; align-items:center; gap:8px;">
+            <span>📱 Mobile Reloads & Airtime Log</span>
+          </h2>
+          <span class="muted small">Dialog, Mobitel, Airtel & Hutch reload transactions, live KPIs, and retail commission auditing</span>
+        </div>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button type="button" class="btn btn-outline" id="btnPrintReloadSummary" style="display:flex; align-items:center; gap:6px;">
+            <span>🖨️</span> <span>Print Summary</span>
+          </button>
+          <button type="button" class="btn btn-primary" id="btnNewReloadModal" style="display:flex; align-items:center; gap:6px; font-weight:800;">
+            <span>➕</span> <span>New Reload</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI Summary Cards -->
+      <div class="reloads-kpi-grid">
+        <div class="reload-kpi-card grand">
+          <div class="reload-kpi-label">
+            <span>Total Volume</span>
+            <span>💳</span>
+          </div>
+          <div class="reload-kpi-val">${fmt(kpis.totalAmount)}</div>
+          <div class="reload-kpi-sub">${kpis.totalCount} total reload transactions</div>
+        </div>
+
+        <div class="reload-kpi-card dialog">
+          <div class="reload-kpi-label">
+            <span>Dialog Axiata</span>
+            <span class="provider-badge dialog"><img src="assets/telcos/dialog.png" style="height:12px; width:auto; vertical-align:middle; object-fit:contain; border-radius:2px; margin-right:3px;"> Dialog</span>
+          </div>
+          <div class="reload-kpi-val">${fmt(kpis.dialogAmount)}</div>
+          <div class="reload-kpi-sub">${kpis.dialogCount} reloads</div>
+        </div>
+
+        <div class="reload-kpi-card mobitel">
+          <div class="reload-kpi-label">
+            <span>SLT-Mobitel</span>
+            <span class="provider-badge mobitel"><img src="assets/telcos/mobitel.png" style="height:12px; width:auto; vertical-align:middle; object-fit:contain; border-radius:2px; margin-right:3px;"> Mobitel</span>
+          </div>
+          <div class="reload-kpi-val">${fmt(kpis.mobitelAmount)}</div>
+          <div class="reload-kpi-sub">${kpis.mobitelCount} reloads</div>
+        </div>
+
+        <div class="reload-kpi-card airtel">
+          <div class="reload-kpi-label">
+            <span>Airtel Lanka</span>
+            <span class="provider-badge airtel"><img src="assets/telcos/airtel.png" style="height:12px; width:auto; vertical-align:middle; object-fit:contain; border-radius:2px; margin-right:3px;"> Airtel</span>
+          </div>
+          <div class="reload-kpi-val">${fmt(kpis.airtelAmount)}</div>
+          <div class="reload-kpi-sub">${kpis.airtelCount} reloads</div>
+        </div>
+
+        <div class="reload-kpi-card hutch">
+          <div class="reload-kpi-label">
+            <span>Hutchison Lanka</span>
+            <span class="provider-badge hutch"><img src="assets/telcos/hutch.png" style="height:12px; width:auto; vertical-align:middle; object-fit:contain; border-radius:2px; margin-right:3px;"> Hutch</span>
+          </div>
+          <div class="reload-kpi-val">${fmt(kpis.hutchAmount)}</div>
+          <div class="reload-kpi-sub">${kpis.hutchCount} reloads</div>
+        </div>
+
+        <div class="reload-kpi-card grand">
+          <div class="reload-kpi-label">
+            <span>4% Retail Commission</span>
+            <span>💰</span>
+          </div>
+          <div class="reload-kpi-val" style="color:var(--good);">${fmt(kpis.estCommission)}</div>
+          <div class="reload-kpi-sub">Estimated retailer profit margin</div>
+        </div>
+      </div>
+
+      <!-- Filter Bar -->
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; background:var(--bg-card); padding:12px 16px; border-radius:14px; border:1.5px solid var(--border-card); margin-bottom:16px;">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <label style="font-size:12px; font-weight:700; color:var(--text-muted);">From:</label>
+          <input type="date" id="rFromDate" value="${fromDate}" style="padding:6px 10px; font-size:12.5px; border-radius:8px;">
+
+          <label style="font-size:12px; font-weight:700; color:var(--text-muted); margin-left:6px;">To:</label>
+          <input type="date" id="rToDate" value="${toDate}" style="padding:6px 10px; font-size:12.5px; border-radius:8px;">
+
+          <select id="rProviderSelect" style="padding:6px 12px; font-size:12.5px; border-radius:8px; font-weight:700;">
+            <option value="All" ${providerFilter === 'All' ? 'selected' : ''}>All Operators</option>
+            <option value="Dialog" ${providerFilter === 'Dialog' ? 'selected' : ''}>Dialog</option>
+            <option value="Mobitel" ${providerFilter === 'Mobitel' ? 'selected' : ''}>Mobitel</option>
+            <option value="Airtel" ${providerFilter === 'Airtel' ? 'selected' : ''}>Airtel</option>
+            <option value="Hutch" ${providerFilter === 'Hutch' ? 'selected' : ''}>Hutch</option>
+          </select>
+
+          <button type="button" class="btn btn-sm btn-primary" id="btnFilterReloads" style="padding:7px 14px;">Filter</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="btnTodayReloads">Today</button>
+        </div>
+
+        <div style="min-width:240px;">
+          <input id="rSearchInput" placeholder="Search number, ref or cashier..." value="${esc(searchQuery)}" style="padding:6px 12px; font-size:12.5px; border-radius:8px; width:100%;">
+        </div>
+      </div>
+
+      <!-- Transactions Log Table -->
+      <div style="border:1.5px solid var(--border-card); border-radius:14px; overflow:hidden; background:var(--bg-card); box-shadow:var(--shadow-card);">
+        <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
+          <thead>
+            <tr style="background:var(--bg-input); text-align:left; border-bottom:1.5px solid var(--border-card);">
+              <th style="padding:10px 14px;">Reload #</th>
+              <th style="padding:10px 14px;">Date & Time</th>
+              <th style="padding:10px 14px;">Network</th>
+              <th style="padding:10px 14px;">Mobile Number</th>
+              <th style="padding:10px 14px;">Type / Package</th>
+              <th style="padding:10px 14px; text-align:right;">Amount</th>
+              <th style="padding:10px 14px;">Invoice #</th>
+              <th style="padding:10px 14px;">Cashier</th>
+              <th style="padding:10px 14px; text-align:center;">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${reloads.map(r => `
+              <tr style="border-bottom:1px solid var(--border-card);">
+                <td style="padding:10px 14px; font-family:monospace; font-weight:800; color:var(--text-main);">${esc(r.ReloadNo)}</td>
+                <td style="padding:10px 14px; color:var(--text-muted); font-size:12px;">${esc(r.FormattedTime || new Date(r.CreatedAt).toLocaleString())}</td>
+                <td style="padding:10px 14px;">
+                  <span class="provider-badge ${String(r.Provider).toLowerCase()}">
+                    ${SRI_LANKA_TELCOS[r.Provider]?.logoUrl ? `<img src="${SRI_LANKA_TELCOS[r.Provider].logoUrl}" style="height:14px; width:auto; vertical-align:middle; object-fit:contain; border-radius:2px; margin-right:4px;">` : ''}
+                    ${esc(r.Provider)}
+                  </span>
+                </td>
+                <td style="padding:10px 14px; font-family:monospace; font-weight:800; font-size:13px;">${esc(r.MobileNo)}</td>
+                <td style="padding:10px 14px;">
+                  <span style="font-weight:700;">${esc(r.ReloadType)}</span>
+                  ${r.PackageDetails ? `<br><small class="muted">${esc(r.PackageDetails)}</small>` : ''}
+                </td>
+                <td style="padding:10px 14px; text-align:right; font-weight:900; color:var(--brand); font-size:13px;">${fmt(r.Amount)}</td>
+                <td style="padding:10px 14px;">
+                  ${r.InvoiceNo ? `<code style="font-weight:700; color:var(--text-main);">${esc(r.InvoiceNo)}</code>` : '<span class="muted">—</span>'}
+                </td>
+                <td style="padding:10px 14px; color:var(--text-muted);">${esc(r.CashierName || 'Cashier')}</td>
+                <td style="padding:10px 14px; text-align:center;">
+                  <div style="display:inline-flex; gap:6px;">
+                    <button type="button" class="btn btn-xs btn-ghost" data-print-reload-id="${r.Id}" title="Print Reload Confirmation Slip">🖨️ Slip</button>
+                    ${r.InvoiceNo ? `<button type="button" class="btn btn-xs btn-outline" data-view-inv="${r.InvoiceNo}" title="View Full Bill">Invoice</button>` : ''}
+                  </div>
+                </td>
+              </tr>
+            `).join('') || `
+              <tr>
+                <td colspan="9" style="text-align:center; padding:50px 20px; color:var(--text-muted);">
+                  <div style="font-size:32px; margin-bottom:8px;">📱</div>
+                  <div style="font-weight:800; font-size:15px; margin-bottom:4px;">No mobile reloads found</div>
+                  <small>No reload transactions recorded for the selected date range and filter criteria.</small>
+                </td>
+              </tr>
+            `}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    // Event Listeners
+    $('#btnNewReloadModal').onclick = () => showReloadModal('', () => loadData());
+    $('#btnFilterReloads').onclick = () => {
+      fromDate = $('#rFromDate').value;
+      toDate = $('#rToDate').value;
+      providerFilter = $('#rProviderSelect').value;
+      searchQuery = $('#rSearchInput').value;
+      loadData();
+    };
+
+    $('#btnTodayReloads').onclick = () => {
+      fromDate = todayStr;
+      toDate = todayStr;
+      $('#rFromDate').value = todayStr;
+      $('#rToDate').value = todayStr;
+      providerFilter = 'All';
+      $('#rProviderSelect').value = 'All';
+      searchQuery = '';
+      $('#rSearchInput').value = '';
+      loadData();
+    };
+
+    $('#rSearchInput').onkeydown = e => {
+      if (e.key === 'Enter') {
+        searchQuery = $('#rSearchInput').value;
+        loadData();
+      }
+    };
+
+    $('#btnPrintReloadSummary').onclick = () => {
+      const printArea = document.getElementById('printableReceiptArea');
+      if (printArea) {
+        printArea.className = '';
+        printArea.innerHTML = `
+          <div style="font-family:monospace; padding:10px; font-size:12px; color:#000;">
+            <div style="text-align:center; font-weight:900; font-size:14px;">MOBILE RELOADS SUMMARY</div>
+            <div style="text-align:center; font-size:11px; margin-bottom:8px;">Period: ${fromDate} to ${toDate}</div>
+            <hr style="border:0; border-top:1px dashed #000; margin:6px 0;">
+            <div style="display:flex; justify-content:space-between;"><span>Total Volume:</span><b>${fmt(kpis.totalAmount)}</b></div>
+            <div style="display:flex; justify-content:space-between;"><span>Transactions:</span><b>${kpis.totalCount}</b></div>
+            <div style="display:flex; justify-content:space-between;"><span>Dialog Axiata:</span><b>${fmt(kpis.dialogAmount)}</b></div>
+            <div style="display:flex; justify-content:space-between;"><span>SLT-Mobitel:</span><b>${fmt(kpis.mobitelAmount)}</b></div>
+            <div style="display:flex; justify-content:space-between;"><span>Airtel Lanka:</span><b>${fmt(kpis.airtelAmount)}</b></div>
+            <div style="display:flex; justify-content:space-between;"><span>Hutchison Lanka:</span><b>${fmt(kpis.hutchAmount)}</b></div>
+            <hr style="border:0; border-top:1px dashed #000; margin:6px 0;">
+            <div style="display:flex; justify-content:space-between; font-weight:900;"><span>Retail Commission (4%):</span><b>${fmt(kpis.estCommission)}</b></div>
+            <div style="text-align:center; margin-top:12px; font-size:10px;">Generated on ${new Date().toLocaleString()}</div>
+          </div>
+        `;
+      }
+      window.print();
+    };
+
+    document.querySelectorAll('[data-print-reload-id]').forEach(btn => {
+      btn.onclick = () => {
+        const id = +btn.dataset.printReloadId;
+        const r = reloads.find(x => x.Id === id);
+        if (!r) return;
+        const printArea = document.getElementById('printableReceiptArea');
+        if (printArea) {
+          printArea.className = '';
+          printArea.innerHTML = `
+            <div style="font-family:monospace; padding:10px; font-size:12px; color:#000; text-align:left;">
+              <div style="text-align:center; font-weight:900; font-size:14px; margin-bottom:2px;">*** MOBILE RELOAD SLIP ***</div>
+              <div style="text-align:center; font-size:11px; margin-bottom:6px;">Ref: ${esc(r.ReloadNo)}</div>
+              <hr style="border:0; border-top:1px dashed #000; margin:6px 0;">
+              <div style="display:flex; justify-content:space-between;"><span>NETWORK:</span><b>${esc(r.Provider).toUpperCase()}</b></div>
+              <div style="display:flex; justify-content:space-between;"><span>MOBILE NO:</span><b style="font-size:13px;">${esc(r.MobileNo)}</b></div>
+              <div style="display:flex; justify-content:space-between;"><span>TYPE:</span><b>${esc(r.ReloadType)}</b></div>
+              ${r.PackageDetails ? `<div style="display:flex; justify-content:space-between;"><span>PACKAGE:</span><b>${esc(r.PackageDetails)}</b></div>` : ''}
+              <hr style="border:0; border-top:1px dashed #000; margin:6px 0;">
+              <div style="display:flex; justify-content:space-between; font-size:14px; font-weight:900;"><span>AMOUNT:</span><b>${fmt(r.Amount)}</b></div>
+              <div style="display:flex; justify-content:space-between; font-size:11px; margin-top:4px;"><span>CASHIER:</span><span>${esc(r.CashierName || 'Cashier')}</span></div>
+              <div style="display:flex; justify-content:space-between; font-size:11px;"><span>TIME:</span><span>${esc(r.FormattedTime || new Date(r.CreatedAt).toLocaleString())}</span></div>
+              <hr style="border:0; border-top:1px dashed #000; margin:6px 0;">
+              <div style="text-align:center; font-size:10px; margin-top:8px;">Thank You! Please check your SMS confirmation.</div>
+            </div>
+          `;
+        }
+        window.print();
+        toast(`Reprinting reload slip ${r.ReloadNo}`);
+      };
+    });
+
+    document.querySelectorAll('[data-view-inv]').forEach(btn => {
+      btn.onclick = () => {
+        showInvoiceActionModal(btn.dataset.viewInv);
+      };
+    });
+  };
+
+  await loadData();
 }
 
 /* ==========================================================================
@@ -6678,6 +7327,42 @@ const REPORT_CATALOG = {
       ['Total Value', r => fmt(r.Total)],
       ['Received Date', r => esc(r.ReceivedDate)]
     ]
+  },
+
+  // --- 4. MOBILE RELOADS & AIRTIME REPORTS ---
+  reloads: {
+    group: 'Sales & Revenue',
+    icon: '📱',
+    name: 'Mobile Reloads & Commission Summary',
+    desc: 'Daily reload volumes by operator (Dialog, Mobitel, Airtel, Hutch) and 4% retail commission',
+    sumCol: 'TotalAmount',
+    qtyCol: 'TransactionsCount',
+    cols: [
+      ['Date', r => r.Date],
+      ['Network Operator', r => `<span class="provider-badge ${String(r.Provider).toLowerCase()}">${esc(r.Provider)}</span>`],
+      ['Transactions', r => `<b>${r.TransactionsCount}</b>`],
+      ['Total Reloads', r => `<b style="color:var(--brand);">${fmt(r.TotalAmount)}</b>`],
+      ['Retail Commission (4%)', r => `<b style="color:var(--good);">${fmt(r.EstCommission)}</b>`]
+    ]
+  },
+  reloadItems: {
+    group: 'Sales & Revenue',
+    icon: '🧾',
+    name: 'Mobile Reloads Transaction Log',
+    desc: 'Itemized mobile reload sales with phone numbers, package details, and cashier invoices',
+    sumCol: 'Amount',
+    qtyCol: null,
+    cols: [
+      ['Reload #', r => `<code>${esc(r.ReloadNo)}</code>`],
+      ['Date & Time', r => esc(r.DateTime)],
+      ['Network', r => `<span class="provider-badge ${String(r.Provider).toLowerCase()}">${esc(r.Provider)}</span>`],
+      ['Mobile Number', r => `<b style="font-family:monospace; font-size:13px;">${esc(r.MobileNo)}</b>`],
+      ['Reload Type & Details', r => `<span>${esc(r.ReloadType)}${r.PackageDetails && r.PackageDetails !== '—' ? ` · <small class="muted">${esc(r.PackageDetails)}</small>` : ''}</span>`],
+      ['Amount', r => `<b style="color:var(--brand);">${fmt(r.Amount)}</b>`],
+      ['Cashier', r => esc(r.Cashier || '—')],
+      ['Invoice #', r => r.InvoiceNo && r.InvoiceNo !== '—' ? `<code>${esc(r.InvoiceNo)}</code>` : '<span class="muted">—</span>'],
+      ['Payment Method', r => `<span class="pill info">${esc(r.PaymentMethod || 'Cash')}</span>`]
+    ]
   }
 };
 
@@ -8279,6 +8964,29 @@ async function vHelp() {
           num: 3,
           title: 'Approve & Print Debit Note',
           body: 'Click <strong>Approve & Deduct Stock</strong>. The items are removed from inventory and a Supplier Return Voucher opens with signature spaces for you and the vendor rep!'
+        }
+      ]
+    },
+    reloads: {
+      icon: '📱',
+      title: 'Mobile Reloads (Call, Data, Bills)',
+      sub: 'How to do Dialog, Mobitel, Airtel, and Hutch reloads in seconds.',
+      tip: '💡 <strong>Good to know:</strong> When you start typing the phone number (e.g. <code>077...</code> or <code>071...</code>), the system automatically detects the operator for you!',
+      steps: [
+        {
+          num: 1,
+          title: 'Click 📱 Reload or Press F6',
+          body: 'In the POS billing screen, click the <strong>📱 Reload</strong> button or press <span class="kbd-shortcut-pill">F6</span>.'
+        },
+        {
+          num: 2,
+          title: 'Select Operator & Type Phone Number',
+          body: 'Select the telco (Dialog, Mobitel, Airtel, Hutch) or type the mobile number.'
+        },
+        {
+          num: 3,
+          title: 'Choose Call or Data, Type Amount & Bill!',
+          body: 'Select whether it is <strong>Call Reload</strong>, <strong>Data Reload</strong>, or <strong>Bill</strong>, click or type the amount, and click <strong>Add to Bill</strong> or <strong>Instant Reload Sale</strong>!'
         }
       ]
     },
