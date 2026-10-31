@@ -31,7 +31,9 @@ const SCHEMA = [
 `IF OBJECT_ID('Customers','U') IS NULL CREATE TABLE Customers(Id INT IDENTITY PRIMARY KEY, Name NVARCHAR(100) NOT NULL, Phone NVARCHAR(30) NULL, Address NVARCHAR(200) NULL, CreditLimit DECIMAL(12,2) NOT NULL DEFAULT 10000, CreditBalance DECIMAL(12,2) NOT NULL DEFAULT 0, Active BIT NOT NULL DEFAULT 1, CreatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME())`,
 `IF OBJECT_ID('CustomerPayments','U') IS NULL CREATE TABLE CustomerPayments(Id INT IDENTITY PRIMARY KEY, CustomerId INT NOT NULL REFERENCES Customers(Id), Amount DECIMAL(12,2) NOT NULL, PaymentMethod NVARCHAR(20) NOT NULL DEFAULT 'Cash', Note NVARCHAR(200) NULL, RecordedBy NVARCHAR(100) NOT NULL, CreatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME())`,
 `IF OBJECT_ID('SaleReturns','U') IS NULL CREATE TABLE SaleReturns(Id INT IDENTITY PRIMARY KEY, ReturnNo NVARCHAR(30) NOT NULL UNIQUE, SaleId INT NOT NULL REFERENCES Sales(Id), InvoiceNo NVARCHAR(30) NOT NULL, CashierId INT NOT NULL REFERENCES Users(Id), RefundTotal DECIMAL(12,2) NOT NULL, RefundMethod NVARCHAR(20) NOT NULL DEFAULT 'Cash', Reason NVARCHAR(250) NULL, CreatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME())`,
-`IF OBJECT_ID('SaleReturnItems','U') IS NULL CREATE TABLE SaleReturnItems(Id INT IDENTITY PRIMARY KEY, ReturnId INT NOT NULL REFERENCES SaleReturns(Id), ItemId INT NOT NULL REFERENCES Items(Id), ItemName NVARCHAR(100) NOT NULL, Qty DECIMAL(12,3) NOT NULL, UnitPrice DECIMAL(12,2) NOT NULL, LineTotal DECIMAL(12,2) NOT NULL, Unit NVARCHAR(20) NULL DEFAULT 'pcs')`
+`IF OBJECT_ID('SaleReturnItems','U') IS NULL CREATE TABLE SaleReturnItems(Id INT IDENTITY PRIMARY KEY, ReturnId INT NOT NULL REFERENCES SaleReturns(Id), ItemId INT NOT NULL REFERENCES Items(Id), ItemName NVARCHAR(100) NOT NULL, Qty DECIMAL(12,3) NOT NULL, UnitPrice DECIMAL(12,2) NOT NULL, LineTotal DECIMAL(12,2) NOT NULL, Unit NVARCHAR(20) NULL DEFAULT 'pcs')`,
+`IF OBJECT_ID('SupplierReturns','U') IS NULL CREATE TABLE SupplierReturns(Id INT IDENTITY PRIMARY KEY, ReturnNo NVARCHAR(50) NOT NULL UNIQUE, Supplier NVARCHAR(100) NOT NULL, GrnRef NVARCHAR(50) NULL, TotalAmount DECIMAL(12,2) NOT NULL DEFAULT 0, Reason NVARCHAR(250) NULL, ReturnedBy NVARCHAR(100) NOT NULL, CreatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME())`,
+`IF OBJECT_ID('SupplierReturnItems','U') IS NULL CREATE TABLE SupplierReturnItems(Id INT IDENTITY PRIMARY KEY, ReturnId INT NOT NULL REFERENCES SupplierReturns(Id) ON DELETE CASCADE, ItemId INT NOT NULL REFERENCES Items(Id), ItemName NVARCHAR(100) NOT NULL, Qty DECIMAL(12,3) NOT NULL, UnitCost DECIMAL(12,2) NOT NULL DEFAULT 0, LineTotal DECIMAL(12,2) NOT NULL DEFAULT 0, BatchNo NVARCHAR(50) NULL, Reason NVARCHAR(200) NULL, Unit NVARCHAR(20) NULL DEFAULT 'pcs')`
 ];
 
 async function initDb() {
@@ -57,7 +59,9 @@ async function initDb() {
     `IF COL_LENGTH('SaleItems', 'Unit') IS NULL ALTER TABLE SaleItems ADD Unit NVARCHAR(20) NULL DEFAULT 'pcs'`,
     `IF COL_LENGTH('GRNItems', 'Unit') IS NULL ALTER TABLE GRNItems ADD Unit NVARCHAR(20) NULL DEFAULT 'pcs'`,
     `IF COL_LENGTH('Users', 'Permissions') IS NULL ALTER TABLE Users ADD Permissions NVARCHAR(500) NULL`,
-    `IF OBJECT_ID('SubscriptionCodes','U') IS NULL CREATE TABLE SubscriptionCodes(Code NVARCHAR(50) PRIMARY KEY, Months INT NOT NULL DEFAULT 1, UsedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME(), Period NVARCHAR(10) NOT NULL, UsedBy NVARCHAR(100) NOT NULL, Note NVARCHAR(200) NULL)`
+    `IF OBJECT_ID('SubscriptionCodes','U') IS NULL CREATE TABLE SubscriptionCodes(Code NVARCHAR(50) PRIMARY KEY, Months INT NOT NULL DEFAULT 1, UsedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME(), Period NVARCHAR(10) NOT NULL, UsedBy NVARCHAR(100) NOT NULL, Note NVARCHAR(200) NULL)`,
+    `IF OBJECT_ID('SupplierReturns','U') IS NULL CREATE TABLE SupplierReturns(Id INT IDENTITY PRIMARY KEY, ReturnNo NVARCHAR(50) NOT NULL UNIQUE, Supplier NVARCHAR(100) NOT NULL, GrnRef NVARCHAR(50) NULL, TotalAmount DECIMAL(12,2) NOT NULL DEFAULT 0, Reason NVARCHAR(250) NULL, ReturnedBy NVARCHAR(100) NOT NULL, CreatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME())`,
+    `IF OBJECT_ID('SupplierReturnItems','U') IS NULL CREATE TABLE SupplierReturnItems(Id INT IDENTITY PRIMARY KEY, ReturnId INT NOT NULL REFERENCES SupplierReturns(Id) ON DELETE CASCADE, ItemId INT NOT NULL REFERENCES Items(Id), ItemName NVARCHAR(100) NOT NULL, Qty DECIMAL(12,3) NOT NULL, UnitCost DECIMAL(12,2) NOT NULL DEFAULT 0, LineTotal DECIMAL(12,2) NOT NULL DEFAULT 0, BatchNo NVARCHAR(50) NULL, Reason NVARCHAR(200) NULL, Unit NVARCHAR(20) NULL DEFAULT 'pcs')`
   ];
 
   for (const m of migrations) {
@@ -284,7 +288,7 @@ function hasAccess(ch, session, roles) {
     if (ch === 'categories:list') return true;
     return userPerms.includes('items') || session.role === A || session.role === M;
   }
-  if (ch.startsWith('grn:')) return userPerms.includes('grn');
+  if (ch.startsWith('grn:') || ch.startsWith('supplierReturns:')) return userPerms.includes('grn');
   if (ch.startsWith('reports:')) return userPerms.includes('reports');
   if (ch.startsWith('settings:')) {
     if (ch === 'settings:getReceipt' || ch === 'settings:getShopProfile') return true;
@@ -1478,6 +1482,43 @@ handle('reports:expiring', MA, async () => (await pool.request().query(`
   ORDER BY gi.ExpiryDate ASC
 `)).recordset);
 
+const RET_RANGE = 'sr.CreatedAt >= CAST(@f AS DATE) AND sr.CreatedAt < DATEADD(day,1,CAST(@t AS DATE))';
+
+handle('reports:supplierReturns', MA, async p => (await rng(p, pool.request()).query(`
+  SELECT sr.Id,
+         sr.ReturnNo,
+         CONVERT(VARCHAR(10), sr.CreatedAt, 120) CreatedDate,
+         sr.Supplier,
+         ISNULL(sr.GrnRef, '—') GrnRef,
+         ISNULL(sr.Reason, 'General Return') Reason,
+         COUNT(sri.Id) ItemTypes,
+         ISNULL(SUM(sri.Qty), 0) TotalQty,
+         sr.TotalAmount Total,
+         sr.ReturnedBy
+  FROM SupplierReturns sr
+  LEFT JOIN SupplierReturnItems sri ON sri.ReturnId = sr.Id
+  WHERE ${RET_RANGE}
+  GROUP BY sr.Id, sr.ReturnNo, sr.CreatedAt, sr.Supplier, sr.GrnRef, sr.Reason, sr.TotalAmount, sr.ReturnedBy
+  ORDER BY sr.Id DESC
+`)).recordset);
+
+handle('reports:supplierReturnItems', MA, async p => (await rng(p, pool.request()).query(`
+  SELECT sri.ItemName Item,
+         sr.ReturnNo,
+         CONVERT(VARCHAR(10), sr.CreatedAt, 120) CreatedDate,
+         sr.Supplier,
+         ISNULL(sri.BatchNo, '—') BatchNo,
+         ISNULL(sri.Reason, sr.Reason) Reason,
+         sri.Qty,
+         sri.UnitCost,
+         sri.LineTotal Total,
+         sri.Unit
+  FROM SupplierReturnItems sri
+  JOIN SupplierReturns sr ON sr.Id = sri.ReturnId
+  WHERE ${RET_RANGE}
+  ORDER BY sr.Id DESC, sri.Id ASC
+`)).recordset);
+
 /* ---------- Dashboard & GRN ---------- */
 handle('dashboard:overview', ALL, async () => {
   const q = () => pool.request();
@@ -1704,6 +1745,131 @@ handle('grn:create', MA, async ({ grnNo, supplier, invoiceRef, notes, items }) =
   }
 });
 
+/* ---------- Supplier Returns (Return to Vendor / Debit Notes) ---------- */
+handle('supplierReturns:list', MA, async () => (await pool.request().query(`
+  SELECT sr.Id, sr.ReturnNo, sr.Supplier, sr.GrnRef, sr.TotalAmount, sr.Reason, sr.ReturnedBy, sr.CreatedAt,
+         COUNT(sri.Id) ItemCount, ISNULL(SUM(sri.Qty), 0) TotalQty
+  FROM SupplierReturns sr
+  LEFT JOIN SupplierReturnItems sri ON sri.ReturnId = sr.Id
+  GROUP BY sr.Id, sr.ReturnNo, sr.Supplier, sr.GrnRef, sr.TotalAmount, sr.Reason, sr.ReturnedBy, sr.CreatedAt
+  ORDER BY sr.Id DESC
+`)).recordset);
+
+handle('supplierReturns:get', MA, async ({ id }) => {
+  const returnNote = (await pool.request().input('id', sql.Int, id)
+    .query('SELECT * FROM SupplierReturns WHERE Id=@id')).recordset[0];
+  if (!returnNote) throw new Error('Supplier Return not found');
+  const items = (await pool.request().input('id', sql.Int, id)
+    .query('SELECT * FROM SupplierReturnItems WHERE ReturnId=@id ORDER BY Id ASC')).recordset;
+  return { returnNote, items };
+});
+
+handle('supplierReturns:suppliersList', MA, async () => {
+  const res = (await pool.request().query(`
+    SELECT DISTINCT Supplier FROM GRNs WHERE Supplier IS NOT NULL AND LEN(LTRIM(RTRIM(Supplier))) > 0
+    UNION
+    SELECT DISTINCT Supplier FROM SupplierReturns WHERE Supplier IS NOT NULL AND LEN(LTRIM(RTRIM(Supplier))) > 0
+    ORDER BY Supplier ASC
+  `)).recordset.map(r => r.Supplier);
+  return res;
+});
+
+handle('supplierReturns:recentGrns', MA, async ({ supplier }) => {
+  let q = 'SELECT TOP 20 Id, GrnNo, Supplier, InvoiceRef, TotalCost, CreatedAt FROM GRNs';
+  const req = pool.request();
+  if (supplier && supplier.trim()) {
+    q += ' WHERE Supplier = @sup';
+    req.input('sup', sql.NVarChar, supplier.trim());
+  }
+  q += ' ORDER BY Id DESC';
+  return (await req.query(q)).recordset;
+});
+
+handle('supplierReturns:create', MA, async ({ returnNo, supplier, grnRef, reason, items }) => {
+  if (!supplier?.trim()) throw new Error('Supplier name is required for return');
+  if (!Array.isArray(items) || !items.length) throw new Error('At least one item is required for supplier return');
+
+  let finalReturnNo = returnNo?.trim();
+  if (!finalReturnNo) {
+    const pad = n => String(n).padStart(2, '0');
+    const d = new Date();
+    finalReturnNo = `SRN-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${Math.floor(1000 + Math.random() * 9000)}`;
+  }
+
+  const tx = new sql.Transaction(pool);
+  await tx.begin();
+  try {
+    let totalAmount = 0;
+    const validated = [];
+
+    for (const row of items) {
+      const it = (await new sql.Request(tx).input('id', sql.Int, row.itemId)
+        .query('SELECT Id, Name, Stock, Price, Unit, IsLoose FROM Items WHERE Id=@id AND Active=1')).recordset[0];
+      if (!it) throw new Error(`Invalid item ID: ${row.itemId}`);
+
+      const qty = Math.round((parseFloat(row.qty) || 0) * 1000) / 1000;
+      const unitCost = Math.max(0, +row.unitCost || 0);
+      if (!(qty > 0.0001)) throw new Error(`Invalid return quantity for item ${it.Name}`);
+
+      if (it.Stock < qty) {
+        throw new Error(`Insufficient stock for "${it.Name}". Current stock is ${it.Stock} ${it.Unit || 'pcs'}, cannot return ${qty} ${it.Unit || 'pcs'}.`);
+      }
+
+      const lineTotal = r2(qty * unitCost);
+      totalAmount += lineTotal;
+      validated.push({
+        itemId: it.Id,
+        itemName: it.Name,
+        qty,
+        unit: it.Unit || 'pcs',
+        unitCost,
+        lineTotal,
+        batchNo: row.batchNo?.trim() || null,
+        reason: row.reason?.trim() || reason?.trim() || 'Supplier Return'
+      });
+    }
+
+    totalAmount = r2(totalAmount);
+
+    const retInsert = await new sql.Request(tx)
+      .input('rn', sql.NVarChar, finalReturnNo)
+      .input('sup', sql.NVarChar, supplier.trim())
+      .input('gref', sql.NVarChar, grnRef?.trim() || null)
+      .input('tot', sql.Decimal(12, 2), totalAmount)
+      .input('rea', sql.NVarChar, reason?.trim() || 'Supplier Return')
+      .input('by', sql.NVarChar, session.fullName || session.username)
+      .query('INSERT INTO SupplierReturns(ReturnNo,Supplier,GrnRef,TotalAmount,Reason,ReturnedBy) OUTPUT inserted.Id VALUES(@rn,@sup,@gref,@tot,@rea,@by)');
+
+    const returnId = retInsert.recordset[0].Id;
+
+    for (const v of validated) {
+      await new sql.Request(tx)
+        .input('rid', sql.Int, returnId)
+        .input('iid', sql.Int, v.itemId)
+        .input('inm', sql.NVarChar, v.itemName)
+        .input('q', sql.Decimal(12, 3), v.qty)
+        .input('uc', sql.Decimal(12, 2), v.unitCost)
+        .input('lt', sql.Decimal(12, 2), v.lineTotal)
+        .input('bn', sql.NVarChar, v.batchNo)
+        .input('rea', sql.NVarChar, v.reason)
+        .input('unit', sql.NVarChar, v.unit || 'pcs')
+        .query('INSERT INTO SupplierReturnItems(ReturnId,ItemId,ItemName,Qty,UnitCost,LineTotal,BatchNo,Reason,Unit) VALUES(@rid,@iid,@inm,@q,@uc,@lt,@bn,@rea,@unit)');
+
+      // Deduct returned quantity from active stock
+      await new sql.Request(tx)
+        .input('iid', sql.Int, v.itemId)
+        .input('q', sql.Decimal(12, 3), v.qty)
+        .query('UPDATE Items SET Stock = Stock - @q WHERE Id=@iid');
+    }
+
+    await tx.commit();
+    return { id: returnId, returnNo: finalReturnNo, totalAmount, itemsCount: validated.length };
+  } catch (err) {
+    await tx.rollback().catch(() => {});
+    throw err;
+  }
+});
+
 /* ---------- Automated Database Backup Engine (Hourly / Single File Per Day) ---------- */
 let backupTimer = null;
 let lastBackupInfo = {
@@ -1755,6 +1921,8 @@ async function performHourlyBackup(isManual = false) {
       'SaleReturnItems',
       'GRNs',
       'GRNItems',
+      'SupplierReturns',
+      'SupplierReturnItems',
       'Payments',
       'SubscriptionCodes'
     ];
@@ -1936,19 +2104,19 @@ handle('backup:restore', ADMIN, async ({ filePath }) => {
   const tx = new sql.Transaction(pool);
   await tx.begin();
   try {
-    const clearOrder = ['SaleReturnItems', 'SaleReturns', 'SaleItems', 'Sales', 'CustomerPayments', 'Customers', 'PettyCash', 'Shifts', 'GRNItems', 'GRNs', 'Items', 'Categories', 'Payments', 'SubscriptionCodes', 'Settings', 'Users'];
+    const clearOrder = ['SupplierReturnItems', 'SupplierReturns', 'SaleReturnItems', 'SaleReturns', 'SaleItems', 'Sales', 'CustomerPayments', 'Customers', 'PettyCash', 'Shifts', 'GRNItems', 'GRNs', 'Items', 'Categories', 'Payments', 'SubscriptionCodes', 'Settings', 'Users'];
     for (const t of clearOrder) {
       if (data.tables[t]) {
         await new sql.Request(tx).query(`DELETE FROM [${t}]`);
       }
     }
 
-    const restoreOrder = ['Users', 'Settings', 'Categories', 'Items', 'Shifts', 'PettyCash', 'Customers', 'CustomerPayments', 'Sales', 'SaleItems', 'SaleReturns', 'SaleReturnItems', 'GRNs', 'GRNItems', 'Payments', 'SubscriptionCodes'];
+    const restoreOrder = ['Users', 'Settings', 'Categories', 'Items', 'Shifts', 'PettyCash', 'Customers', 'CustomerPayments', 'Sales', 'SaleItems', 'SaleReturns', 'SaleReturnItems', 'GRNs', 'GRNItems', 'SupplierReturns', 'SupplierReturnItems', 'Payments', 'SubscriptionCodes'];
     let count = 0;
     for (const t of restoreOrder) {
       const rows = data.tables[t] || [];
       if (!rows.length) continue;
-      const hasId = ['Users', 'Categories', 'Items', 'Shifts', 'PettyCash', 'Customers', 'CustomerPayments', 'Sales', 'SaleItems', 'SaleReturns', 'SaleReturnItems', 'GRNs', 'GRNItems', 'Payments'].includes(t);
+      const hasId = ['Users', 'Categories', 'Items', 'Shifts', 'PettyCash', 'Customers', 'CustomerPayments', 'Sales', 'SaleItems', 'SaleReturns', 'SaleReturnItems', 'GRNs', 'GRNItems', 'SupplierReturns', 'SupplierReturnItems', 'Payments'].includes(t);
       if (hasId) await new sql.Request(tx).query(`SET IDENTITY_INSERT [${t}] ON`);
       for (const row of rows) {
         const cols = Object.keys(row);

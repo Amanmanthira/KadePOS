@@ -137,6 +137,16 @@ const D = {
   grnSaved: ['GRN received and stock updated successfully', 'GRN එක සටහන් කර තොග යාවත්කාලීන විය'],
   viewGrn: ['View Details', 'විස්තර බලන්න'],
 
+  // Supplier Returns (Return to Vendor / Debit Notes)
+  supplierReturns: ['Supplier Returns', 'සැපයුම්කරු වෙත ආපසු යැවීම්'],
+  newSupplierReturn: ['+ New Supplier Return', '+ නව ආපසු යැවීමක්'],
+  returnNo: ['Return Note #', 'ආපසු යැවීමේ අංකය'],
+  grnRef: ['GRN Reference #', 'අදාළ GRN අංකය'],
+  returnReason: ['Return Reason', 'ආපසු යැවීමට හේතුව'],
+  returnedBy: ['Returned By', 'ආපසු යැවූ පුද්ගලයා'],
+  totalReturnAmount: ['Total Return Value', 'මුළු ආපසු වටිනාකම'],
+  supplierReturnVoucher: ['Supplier Return Voucher', 'සැපයුම්කරු වෙත ආපසු යැවීමේ වවුචරය'],
+
   // Bank & Subscription
   superAdminBankDetails: ['Super Admin Bank Details (Customer Subscription Transfer)', 'සුපිරි පරිපාලකගේ බැංකු විස්තර (දායකත්ව ගාස්තු ගෙවීමට)'],
   bankName: ['Bank Name', 'බැංකුවේ නම'],
@@ -927,6 +937,10 @@ async function go(k) {
   }
   tab = k;
   shell();
+  const viewEl = $('#view');
+  if (viewEl) {
+    viewEl.classList.toggle('pos-view-mode', k === 'pos');
+  }
   try {
     await TABS[k][0]();
   } catch (e) {
@@ -1969,6 +1983,93 @@ function renderThermalRefundSlipHtml(ret, cfg = {}) {
       <div class="tr-footer" style="margin-top:14px;">
         <p style="margin:2px 0;">Stock has been successfully returned to inventory.</p>
         <p style="margin:2px 0; font-weight:800;">Customer Signature: __________________</p>
+      </div>
+    </div>
+  `;
+}
+
+/* ==========================================================================
+   THERMAL SUPPLIER RETURN / DEBIT VOUCHER
+   ========================================================================== */
+function renderThermalSupplierReturnSlipHtml(ret, items = [], cfg = {}) {
+  const shopName = cfg.shopName || 'KADE POS ENTERPRISE';
+  const paperWidth = cfg.receiptPaperWidth === '58mm' ? '280px' : '320px';
+
+  return `
+    <div class="thermal-receipt-paper" style="width:${paperWidth};">
+      <div class="tr-header">
+        <h2 class="tr-shop-name">${esc(shopName)}</h2>
+        <div style="font-weight:900; font-size:12.5px; margin: 6px 0 2px; letter-spacing:1px;">*** SUPPLIER DEBIT NOTE ***</div>
+        <div class="tr-contact">Goods Returned to Vendor</div>
+      </div>
+
+      <hr class="tr-divider-double">
+
+      <div class="tr-meta-row">
+        <span><b>RETURN NO:</b> ${esc(ret.ReturnNo || ret.returnNo)}</span>
+        <span><b>DATE:</b> ${new Date(ret.CreatedAt || Date.now()).toLocaleDateString('en-LK')}</span>
+      </div>
+      <div class="tr-meta-row">
+        <span><b>SUPPLIER:</b> ${esc(ret.Supplier || ret.supplier)}</span>
+      </div>
+      ${(ret.GrnRef || ret.grnRef) ? `
+        <div class="tr-meta-row">
+          <span><b>REF GRN #:</b> ${esc(ret.GrnRef || ret.grnRef)}</span>
+        </div>
+      ` : ''}
+      <div class="tr-meta-row">
+        <span><b>REASON:</b> ${esc(ret.Reason || ret.reason || 'Supplier Return')}</span>
+        <span><b>BY:</b> ${esc(ret.ReturnedBy || ret.returnedBy || 'Manager')}</span>
+      </div>
+
+      <hr class="tr-divider-dashed">
+
+      <table class="tr-table">
+        <thead>
+          <tr>
+            <th style="width:48%;">RETURNED ITEM</th>
+            <th style="text-align:center; width:18%;">QTY</th>
+            <th style="text-align:right; width:16%;">COST</th>
+            <th style="text-align:right; width:18%;">TOTAL</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${(items || []).map(it => `
+            <tr>
+              <td>
+                <b>${esc(it.ItemName || it.name)}</b>
+                ${it.BatchNo ? `<br><small style="font-size:9.5px; color:#555;">Bch: ${esc(it.BatchNo)}</small>` : ''}
+                ${it.Reason && it.Reason !== ret.Reason ? `<br><small style="font-size:9.5px; color:#c00;">${esc(it.Reason)}</small>` : ''}
+              </td>
+              <td style="text-align:center;">${Number.isInteger(+it.Qty) ? it.Qty : (+it.Qty).toFixed(3)} ${esc(it.Unit || 'pcs')}</td>
+              <td style="text-align:right;">${(+it.UnitCost).toFixed(2)}</td>
+              <td style="text-align:right;"><b>${(+it.LineTotal).toFixed(2)}</b></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+
+      <hr class="tr-divider-dashed">
+
+      <div class="tr-sum-row tr-total-row">
+        <span>TOTAL DEBIT AMOUNT:</span>
+        <span>LKR ${(+ret.TotalAmount || +ret.totalAmount || 0).toFixed(2)}</span>
+      </div>
+
+      <div style="margin-top:20px; display:flex; justify-content:space-between; font-size:10px;">
+        <div style="text-align:center; width:45%;">
+          <div style="border-bottom:1px solid #000; height:18px;"></div>
+          <span>Store Return Auth</span>
+        </div>
+        <div style="text-align:center; width:45%;">
+          <div style="border-bottom:1px solid #000; height:18px;"></div>
+          <span>Supplier Representative</span>
+        </div>
+      </div>
+
+      <div class="tr-footer" style="margin-top:14px;">
+        <p style="margin:2px 0;">Printed: ${new Date().toLocaleString()}</p>
+        <p style="margin:2px 0; font-weight:800;">Kade POS Enterprise System</p>
       </div>
     </div>
   `;
@@ -3195,6 +3296,9 @@ async function vPos() {
   const getDiscount = () => Math.max(0, parseFloat($('#posDiscount')?.value) || 0);
   const getTotal = () => Math.max(0, Math.round((getSubtotal() - getDiscount()) * 100) / 100);
 
+  const viewEl = $('#view');
+  if (viewEl) viewEl.classList.add('pos-view-mode');
+
   $('#view').innerHTML = `
     <div class="pos-layout">
       <!-- Left: Fast Catalog & Search Section -->
@@ -3211,18 +3315,18 @@ async function vPos() {
         <!-- Category Chips -->
         <div id="cats" class="category-chips"></div>
 
-        <!-- Product Grid with Arrow Key Navigation -->
+        <!-- Product Grid (5 Items Per Line) with Arrow Key Navigation -->
         <div id="grid" class="pos-grid"></div>
       </section>
 
-      <!-- Right: Enterprise Cart & Cash Register Panel -->
+      <!-- Right: Enterprise Cart & Cash Register Panel (Prominent & Spacious) -->
       <aside class="pos-cart-panel">
         <div class="cart-header">
           <div class="cart-title-wrap">
             <div class="cart-title-icon">🧾</div>
             <div>
               <h3 class="cart-title">${t('currentBill')}</h3>
-              <span class="cart-count-pill" id="cartCountPill">0 items · 0 qty</span>
+              <span class="cart-count-pill" id="cartCountPill">0 items (0 pcs)</span>
             </div>
           </div>
 
@@ -3272,15 +3376,15 @@ async function vPos() {
         <div class="cart-summary">
           <!-- Subtotal -->
           <div class="cart-sum-row">
-            <span class="muted">${t('subtotal')}</span>
-            <b id="posSubtot" style="font-size:16px;">LKR 0.00</b>
+            <span class="cart-sum-label">${t('subtotal')}</span>
+            <b id="posSubtot" class="cart-sum-value">LKR 0.00</b>
           </div>
 
           <!-- Bill Discount Input Field -->
           <div class="discount-field-row">
-            <div style="display:flex; flex-direction:column;">
-              <span style="font-size:13px; font-weight:700;">${t('billDiscount')}</span>
-              <small class="muted" style="font-size:10.5px;">Press Enter to choose Cash / Card ↵</small>
+            <div class="disc-label-col">
+              <span class="disc-title">${t('billDiscount')} (LKR)</span>
+              <small class="disc-hint">Enter moves to Payment Method ↵</small>
             </div>
             <input id="posDiscount" type="number" min="0" step="1" value="0" placeholder="0">
           </div>
@@ -3288,14 +3392,18 @@ async function vPos() {
           <!-- Massive High-Contrast Grand Total Banner -->
           <div class="total-payable-banner">
             <div>
-              <div class="total-banner-label">${t('total')}</div>
-              <small style="font-size:10px; color:#a5b4fc;">Net Payable Amount</small>
+              <div class="total-banner-label">TOTAL PAYABLE</div>
+              <small class="total-banner-sub">Net Payable Amount</small>
             </div>
             <div class="total-banner-amount" id="tot">LKR 0.00</div>
           </div>
 
           <!-- Payment Method Selector: Cash vs Card vs Split vs Credit -->
-          <div style="display:flex; flex-direction:column; gap:6px;">
+          <div class="pay-method-section">
+            <div class="pay-method-header-row">
+              <span class="pay-method-section-title">PAYMENT METHOD</span>
+              <small class="pay-method-section-hint">Use ← / → Arrow keys · Enter to confirm</small>
+            </div>
             <div class="pay-method-toggle">
               <button type="button" class="pay-method-btn active" data-meth="Cash">
                 💵 ${t('cash')}
@@ -3313,11 +3421,11 @@ async function vPos() {
           </div>
 
           <!-- Cash Received Inputs (Only visible in Cash mode) -->
-          <div id="cashFieldsWrap" style="display:flex; flex-direction:column; gap:8px;">
+          <div id="cashFieldsWrap" class="cash-fields-wrap">
             <div class="cash-received-box">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                <span class="field-label" style="font-weight:800;">${t('cashReceived')} (LKR) *</span>
-                <small class="muted" style="font-size:11px;">Press Enter to Complete Sale ↵</small>
+              <div class="cash-received-header">
+                <span class="cash-received-label">${t('cashReceived')} (LKR) *</span>
+                <small class="cash-received-hint">Press Enter to Complete ↵</small>
               </div>
               <input id="paid" type="text" inputmode="decimal" placeholder="0.00" autocomplete="off">
             </div>
@@ -3331,8 +3439,8 @@ async function vPos() {
 
             <!-- Dynamic Balance / Change Status -->
             <div id="balanceBadge" class="balance-status-badge exact-or-change">
-              <span>${t('balance')}</span>
-              <b id="bal" style="font-size:16px;">LKR 0.00</b>
+              <span class="balance-badge-label">${t('balance')}</span>
+              <b id="bal" class="balance-badge-val">LKR 0.00</b>
             </div>
           </div>
 
@@ -3416,7 +3524,7 @@ async function vPos() {
           </div>
 
           <!-- Complete Sale Button -->
-          <button id="pay" class="btn btn-primary btn-lg btn-block" style="font-size:16px; font-weight:800; padding:14px; border-radius:12px;">
+          <button id="pay" class="btn btn-primary btn-lg btn-block pos-checkout-btn">
             ✓ ${t('checkout')} (Enter)
           </button>
         </div>
@@ -3545,7 +3653,7 @@ async function vPos() {
     const totalQtyCount = cart.reduce((s, l) => s + (+l.qty || 0), 0);
     const qtyStr = Number.isInteger(totalQtyCount) ? totalQtyCount : totalQtyCount.toFixed(3);
 
-    $('#cartCountPill').textContent = `${cart.length} items · ${qtyStr} qty`;
+    $('#cartCountPill').textContent = `${cart.length} items (${qtyStr} pcs)`;
 
     $('#lines').innerHTML = cart.map((l, i) => `
       <div class="cart-line-card ${l.id === lastAddedId ? 'newly-added' : ''}" data-idx="${i}">
@@ -3580,9 +3688,11 @@ async function vPos() {
       </div>
     `).join('') || `
       <div class="cart-empty-state">
-        <svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" fill="none"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>
-        <span style="font-size:14px; font-weight:800;">Bill is currently empty</span>
-        <small style="color:var(--text-muted);">Type any letter or scan to add items · Arrow keys to select</small>
+        <div class="cart-empty-icon-box">
+          <svg viewBox="0 0 24 24" width="34" height="34" stroke="currentColor" fill="none"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>
+        </div>
+        <div class="cart-empty-title">Bill is currently empty</div>
+        <div class="cart-empty-subtitle">Type any letter to search · Use Arrow Keys & Enter to add items</div>
       </div>
     `;
 
@@ -4058,8 +4168,7 @@ async function vPos() {
       const visible = getVisibleItems();
       if (!visible.length) return;
 
-      const gridEl = $('#grid');
-      const cols = Math.max(1, Math.floor((gridEl?.clientWidth || 600) / 190)) || 3;
+      const cols = 5; // Exactly 5 items per line in POS product catalog grid
 
       if (e.key === 'ArrowRight') {
         e.preventDefault();
@@ -5440,89 +5549,186 @@ async function showCustomerLedgerModal(c) {
 }
 
 /* ==========================================================================
-   VIEW 4: GRN RECEIVING (GOODS RECEIVED NOTE)
+   VIEW 4: GRN RECEIVING (GOODS RECEIVED NOTE) & SUPPLIER RETURNS
    ========================================================================== */
+let grnSubTab = 'inward'; // 'inward' | 'returns'
+
 async function vGrn() {
-  const grns = await call('grn:list');
+  const [grns, supplierReturns] = await Promise.all([
+    call('grn:list'),
+    call('supplierReturns:list')
+  ]);
+
   const totalReceived = grns.reduce((s, g) => s + Number(g.TotalCost || 0), 0);
+  const totalReturned = supplierReturns.reduce((s, r) => s + Number(r.TotalAmount || 0), 0);
+  const totalReturnedUnits = supplierReturns.reduce((s, r) => s + Number(r.TotalQty || 0), 0);
 
   $('#view').innerHTML = `
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:12px;">
       <div>
-        <h2 style="margin:0; font-size:22px; font-weight:800;">${t('grn')}</h2>
-        <span class="muted small">Beverages Batch Tracking & Goods Inward Receipts</span>
+        <h2 style="margin:0; font-size:22px; font-weight:800; display:flex; align-items:center; gap:8px;">
+          <span>📦 Procurement & Supplier Hub</span>
+        </h2>
+        <span class="muted small">Goods Inward Receipts (GRN) & Return to Vendor (Supplier Debit Notes)</span>
       </div>
+
+      <!-- Segmented Sub-Tab Switcher -->
+      <div class="theme-switch-pill" style="height:36px; padding:3px; background:var(--bg-input);">
+        <button type="button" class="theme-switch-btn ${grnSubTab === 'inward' ? 'active' : ''}" id="tabGrnInward" style="font-weight:700; padding:0 14px; font-size:12px;">
+          📦 Goods Received (${grns.length})
+        </button>
+        <button type="button" class="theme-switch-btn ${grnSubTab === 'returns' ? 'active' : ''}" id="tabGrnReturns" style="font-weight:700; padding:0 14px; font-size:12px;">
+          ↩️ Supplier Returns (${supplierReturns.length})
+        </button>
+      </div>
+
       <div style="display:flex; gap:10px;">
-        <input id="grnSearch" placeholder="Search supplier or GRN #…" style="width:240px;">
-        <button class="btn btn-primary" id="btnNewGrn">${t('newGrn')}</button>
+        <input id="procSearch" placeholder="${grnSubTab === 'inward' ? 'Search supplier or GRN #…' : 'Search supplier or Return #…'}" style="width:230px;">
+        ${grnSubTab === 'inward' 
+          ? `<button class="btn btn-primary" id="btnNewGrn">${t('newGrn')}</button>` 
+          : `<button class="btn btn-danger" id="btnNewSupplierReturn" style="font-weight:700;">+ New Supplier Return</button>`}
       </div>
     </div>
 
+    <!-- Stats Row -->
     <div class="top-stats-row" style="margin-bottom:20px;">
-      <div class="fin-stat-card">
-        <div class="stat-text-col">
-          <span class="stat-label-title">Total GRN Receipts</span>
-          <div class="stat-main-number purple">${grns.length}</div>
-          <span class="stat-trend-sub">Completed inward shipments</span>
+      ${grnSubTab === 'inward' ? `
+        <div class="fin-stat-card">
+          <div class="stat-text-col">
+            <span class="stat-label-title">Total GRN Receipts</span>
+            <div class="stat-main-number purple">${grns.length}</div>
+            <span class="stat-trend-sub">Completed inward shipments</span>
+          </div>
         </div>
-      </div>
-      <div class="fin-stat-card">
-        <div class="stat-text-col">
-          <span class="stat-label-title">Total Purchases Value</span>
-          <div class="stat-main-number green">${fmt(totalReceived)}</div>
-          <span class="stat-trend-sub">Inventory purchases recorded</span>
+        <div class="fin-stat-card">
+          <div class="stat-text-col">
+            <span class="stat-label-title">Total Purchases Value</span>
+            <div class="stat-main-number green">${fmt(totalReceived)}</div>
+            <span class="stat-trend-sub">Inventory purchases recorded</span>
+          </div>
         </div>
-      </div>
+      ` : `
+        <div class="fin-stat-card">
+          <div class="stat-text-col">
+            <span class="stat-label-title">Total Return Notes</span>
+            <div class="stat-main-number purple">${supplierReturns.length}</div>
+            <span class="stat-trend-sub">Processed vendor debit notes</span>
+          </div>
+        </div>
+        <div class="fin-stat-card">
+          <div class="stat-text-col">
+            <span class="stat-label-title">Total Return Value (Debit)</span>
+            <div class="stat-main-number red" style="color:var(--bad);">${fmt(totalReturned)}</div>
+            <span class="stat-trend-sub">Vendor refund & credit total</span>
+          </div>
+        </div>
+        <div class="fin-stat-card">
+          <div class="stat-text-col">
+            <span class="stat-label-title">Total Returned Stock</span>
+            <div class="stat-main-number brand">${Number.isInteger(totalReturnedUnits) ? totalReturnedUnits : totalReturnedUnits.toFixed(2)} units</div>
+            <span class="stat-trend-sub">Deducted from active inventory</span>
+          </div>
+        </div>
+      `}
     </div>
 
-    <div class="table-card" id="grnTbl"></div>
+    <div class="table-card" id="procTbl"></div>
   `;
 
-  const drawGrnTable = () => {
-    const q = ($('#grnSearch').value || '').toLowerCase();
-    const rows = grns.filter(g => (g.GrnNo + g.Supplier + (g.InvoiceRef || '')).toLowerCase().includes(q));
+  const drawTable = () => {
+    const q = ($('#procSearch')?.value || '').toLowerCase();
 
-    $('#grnTbl').innerHTML = `
-      <table>
-        <thead>
-          <tr>
-            <th>${t('grnNo')}</th>
-            <th>${t('supplier')}</th>
-            <th>${t('invoiceRef')}</th>
-            <th>${t('totalCost')}</th>
-            <th>${t('itemsCount')}</th>
-            <th>${t('receivedBy')}</th>
-            <th>${t('createdAt')}</th>
-            <th style="text-align:right;">Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows.map(g => `
+    if (grnSubTab === 'inward') {
+      const rows = grns.filter(g => (g.GrnNo + g.Supplier + (g.InvoiceRef || '')).toLowerCase().includes(q));
+      $('#procTbl').innerHTML = `
+        <table>
+          <thead>
             <tr>
-              <td><b>${esc(g.GrnNo)}</b></td>
-              <td><span class="pill info">${esc(g.Supplier)}</span></td>
-              <td><code class="muted">${esc(g.InvoiceRef || '—')}</code></td>
-              <td><b>${fmt(g.TotalCost)}</b></td>
-              <td>${g.ItemCount} items (${g.TotalQty} units)</td>
-              <td><small class="muted">${esc(g.ReceivedBy)}</small></td>
-              <td><small class="muted">${fd(g.CreatedAt)}</small></td>
-              <td style="text-align:right;">
-                <button class="btn btn-sm btn-ghost" data-view="${g.Id}">${t('viewGrn')}</button>
-              </td>
+              <th>${t('grnNo')}</th>
+              <th>${t('supplier')}</th>
+              <th>${t('invoiceRef')}</th>
+              <th>${t('totalCost')}</th>
+              <th>${t('itemsCount')}</th>
+              <th>${t('receivedBy')}</th>
+              <th>${t('createdAt')}</th>
+              <th style="text-align:right;">Action</th>
             </tr>
-          `).join('') || `<tr><td colspan="8" class="muted" style="text-align:center; padding:30px;">${t('noData')}</td></tr>`}
-        </tbody>
-      </table>
-    `;
+          </thead>
+          <tbody>
+            ${rows.map(g => `
+              <tr>
+                <td><b>${esc(g.GrnNo)}</b></td>
+                <td><span class="pill info">${esc(g.Supplier)}</span></td>
+                <td><code class="muted">${esc(g.InvoiceRef || '—')}</code></td>
+                <td><b>${fmt(g.TotalCost)}</b></td>
+                <td>${g.ItemCount} items (${g.TotalQty} units)</td>
+                <td><small class="muted">${esc(g.ReceivedBy)}</small></td>
+                <td><small class="muted">${fd(g.CreatedAt)}</small></td>
+                <td style="text-align:right;">
+                  <button class="btn btn-sm btn-ghost" data-view-grn="${g.Id}">${t('viewGrn')}</button>
+                </td>
+              </tr>
+            `).join('') || `<tr><td colspan="8" class="muted" style="text-align:center; padding:30px;">${t('noData')}</td></tr>`}
+          </tbody>
+        </table>
+      `;
+    } else {
+      const rows = supplierReturns.filter(r => (r.ReturnNo + r.Supplier + (r.GrnRef || '') + (r.Reason || '')).toLowerCase().includes(q));
+      $('#procTbl').innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Return Note #</th>
+              <th>Supplier</th>
+              <th>GRN Ref</th>
+              <th>Return Reason</th>
+              <th>Total Credit Value</th>
+              <th>Items Returned</th>
+              <th>Returned By</th>
+              <th>Date & Time</th>
+              <th style="text-align:right;">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr>
+                <td><b style="color:var(--bad);">${esc(r.ReturnNo)}</b></td>
+                <td><span class="pill info">${esc(r.Supplier)}</span></td>
+                <td><code class="muted">${esc(r.GrnRef || '—')}</code></td>
+                <td><span class="pill warn">${esc(r.Reason || 'General Return')}</span></td>
+                <td><b style="color:var(--bad);">${fmt(r.TotalAmount)}</b></td>
+                <td>${r.ItemCount} items (${r.TotalQty} units)</td>
+                <td><small class="muted">${esc(r.ReturnedBy)}</small></td>
+                <td><small class="muted">${fd(r.CreatedAt)}</small></td>
+                <td style="text-align:right;">
+                  <button class="btn btn-sm btn-ghost" data-view-return="${r.Id}">View & Print Voucher</button>
+                </td>
+              </tr>
+            `).join('') || `<tr><td colspan="9" class="muted" style="text-align:center; padding:30px;">No supplier returns recorded yet. Click "+ New Supplier Return" to return damaged/expired stock.</td></tr>`}
+          </tbody>
+        </table>
+      `;
+    }
   };
 
-  drawGrnTable();
-  $('#grnSearch').oninput = drawGrnTable;
-  $('#btnNewGrn').onclick = () => showNewGrnModal();
-  $('#grnTbl').onclick = async e => {
-    const b = e.target.closest('[data-view]');
-    if (!b) return;
-    showGrnDetailsModal(+b.dataset.view);
+  drawTable();
+
+  $('#tabGrnInward').onclick = () => { grnSubTab = 'inward'; vGrn(); };
+  $('#tabGrnReturns').onclick = () => { grnSubTab = 'returns'; vGrn(); };
+  $('#procSearch').oninput = drawTable;
+
+  const btnGrn = $('#btnNewGrn');
+  if (btnGrn) btnGrn.onclick = () => showNewGrnModal();
+
+  const btnRet = $('#btnNewSupplierReturn');
+  if (btnRet) btnRet.onclick = () => showNewSupplierReturnModal();
+
+  $('#procTbl').onclick = async e => {
+    const grnBtn = e.target.closest('[data-view-grn]');
+    if (grnBtn) return showGrnDetailsModal(+grnBtn.dataset.viewGrn);
+
+    const retBtn = e.target.closest('[data-view-return]');
+    if (retBtn) return showSupplierReturnModal(+retBtn.dataset.viewReturn);
   };
 }
 
@@ -5859,6 +6065,363 @@ async function showNewGrnModal() {
 }
 
 /* ==========================================================================
+   SUPPLIER RETURNS (RETURN TO VENDOR / DEBIT NOTES) MODALS
+   ========================================================================== */
+async function showSupplierReturnModal(returnId) {
+  try {
+    const { returnNote, items } = await call('supplierReturns:get', { id: returnId });
+    const shopSettings = await call('settings:getReceipt');
+    const m = modal(`
+      <div class="modal-header">
+        <div>
+          <h3 class="modal-title" style="color:var(--bad);">↩️ ${esc(returnNote.ReturnNo)}</h3>
+          <small class="muted">${esc(returnNote.Supplier)} · ${fd(returnNote.CreatedAt)}</small>
+        </div>
+        <button class="modal-close-x" data-x>✕</button>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; font-size:12.5px; margin: 10px 0; background:var(--bg-input); padding:12px; border-radius:12px;">
+        <div><b>Supplier:</b> <span class="pill info">${esc(returnNote.Supplier)}</span></div>
+        <div><b>Ref GRN #:</b> <code>${esc(returnNote.GrnRef || '—')}</code></div>
+        <div><b>Returned By:</b> <span class="muted">${esc(returnNote.ReturnedBy)}</span></div>
+        <div><b>Total Return Credit:</b> <span style="color:var(--bad); font-weight:800; font-size:14px;">${fmt(returnNote.TotalAmount)}</span></div>
+        <div style="grid-column:1/-1;"><b>Primary Reason:</b> <span class="pill warn">${esc(returnNote.Reason || 'Supplier Return')}</span></div>
+      </div>
+
+      <table style="width:100%; border:1px solid var(--border-card); border-radius:12px; margin-top:8px;">
+        <thead>
+          <tr>
+            <th>Item & Batch</th>
+            <th style="text-align:center;">Return Qty</th>
+            <th>Unit Cost</th>
+            <th>Item Reason</th>
+            <th style="text-align:right;">Debit Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items.map(it => `
+            <tr>
+              <td>
+                <b>${esc(it.ItemName)}</b>
+                ${it.BatchNo ? `<br><small class="muted">Batch: <code>${esc(it.BatchNo)}</code></small>` : ''}
+              </td>
+              <td style="text-align:center;"><b>${Number.isInteger(+it.Qty) ? it.Qty : (+it.Qty).toFixed(3)} ${esc(it.Unit || 'pcs')}</b></td>
+              <td>${fmt(it.UnitCost)}</td>
+              <td><small class="muted">${esc(it.Reason || returnNote.Reason || 'Return')}</small></td>
+              <td style="text-align:right;"><b>${fmt(it.LineTotal)}</b></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+
+      <div class="modal-actions" style="margin-top:16px;">
+        <button class="btn btn-ghost" data-x>${t('close')}</button>
+        <button class="btn btn-primary" id="btnPrintReturnVoucher">🖨️ Print Return Voucher</button>
+      </div>
+    `, true);
+
+    m.querySelectorAll('[data-x]').forEach(el => el.onclick = () => el.closest('.modal-backdrop').remove());
+    m.querySelector('#btnPrintReturnVoucher').onclick = () => {
+      const printArea = document.getElementById('printableReceiptArea');
+      if (printArea) {
+        printArea.className = '';
+        printArea.innerHTML = renderThermalSupplierReturnSlipHtml(returnNote, items, shopSettings);
+      }
+      window.print();
+    };
+  } catch (err) {
+    toast(err.message, 1);
+  }
+}
+
+async function showNewSupplierReturnModal() {
+  const [catalog, suppliersList] = await Promise.all([
+    call('items:list'),
+    call('supplierReturns:suppliersList')
+  ]);
+
+  if (!catalog.length) return toast('No items in inventory to return', 1);
+
+  const categories = ['All', ...new Set(catalog.map(c => c.Category).filter(Boolean))];
+  const pad = n => String(n).padStart(2, '0');
+  const d = new Date();
+  const defaultReturnNo = `SRN-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${Math.floor(100 + Math.random()*900)}`;
+
+  let rows = [];
+
+  const m = modal(`
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title" style="color:var(--bad);">↩️ ${t('newSupplierReturn')}</h3>
+        <small class="muted">Deduct damaged, expired, or defective goods from inventory and return back to vendor</small>
+      </div>
+      <button class="modal-close-x" data-x>✕</button>
+    </div>
+
+    <form id="supplierReturnForm" class="auth-form" style="gap:14px;">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+        <label class="field-wrap">
+          <span class="field-label">${t('returnNo')}</span>
+          <input name="returnNo" value="${defaultReturnNo}" required>
+        </label>
+        <label class="field-wrap">
+          <span class="field-label">${t('supplier')}</span>
+          <input name="supplier" list="supplierNamesList" placeholder="Select or type supplier name" required autocomplete="off">
+          <datalist id="supplierNamesList">
+            ${suppliersList.map(s => `<option value="${esc(s)}"></option>`).join('')}
+          </datalist>
+        </label>
+        <label class="field-wrap">
+          <span class="field-label">${t('grnRef')} (Optional)</span>
+          <input name="grnRef" placeholder="e.g. GRN-20261028-1024">
+        </label>
+        <label class="field-wrap">
+          <span class="field-label">${t('returnReason')}</span>
+          <select name="reason" id="retMainReason" style="padding:9px; font-weight:700;">
+            <option value="Damaged / Broken Packaging">Damaged / Broken Packaging</option>
+            <option value="Expired Stock / Past Expiry">Expired Stock / Past Expiry</option>
+            <option value="Near Expiry / Short Shelf Life">Near Expiry / Short Shelf Life</option>
+            <option value="Wrong Item / Incorrect Shipment">Wrong Item / Incorrect Shipment</option>
+            <option value="Quality / Texture / Defect Issue">Quality / Texture / Defect Issue</option>
+            <option value="Over-Delivered Excess Goods">Over-Delivered Excess Goods</option>
+            <option value="Customer Return to Supplier">Customer Return to Supplier</option>
+            <option value="Other / General Return">Other / General Return</option>
+          </select>
+        </label>
+      </div>
+
+      <!-- Searchable Product Selector with Category Filter -->
+      <div style="background:var(--bg-input); padding:12px; border-radius:12px; border:1px solid var(--border-card); display:flex; flex-direction:column; gap:8px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <b style="font-size:13px;">🔍 Select Products to Return (Deducts Stock)</b>
+          <span class="pill warn" style="font-size:10px;">Stock Deduction Active</span>
+        </div>
+        <div class="grn-product-search-box">
+          <select id="retCatFilter" style="width:160px; padding:8px 10px; font-weight:700;">
+            ${categories.map(c => `<option value="${esc(c)}">${c === 'All' ? t('allCategories') : esc(c)}</option>`).join('')}
+          </select>
+          <div style="position:relative; flex:1;">
+            <input id="retItemSearch" placeholder="Search product by name or barcode to return…" autocomplete="off" style="width:100%; padding:8px 12px;">
+            <div id="retSuggestList" class="grn-suggest-dropdown hide"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Return Items Table -->
+      <div style="overflow-x:auto; max-height:260px; border:1px solid var(--border-card); border-radius:12px;">
+        <table style="width:100%; font-size:12.5px; border-collapse:collapse;">
+          <thead>
+            <tr style="background:var(--bg-input); text-align:left;">
+              <th style="padding:8px 10px;">Item & Category</th>
+              <th style="padding:8px 6px; text-align:center;">On-Hand Stock</th>
+              <th style="padding:8px 6px; width:85px; text-align:center;">Return Qty</th>
+              <th style="padding:8px 6px; width:95px;">Unit Cost</th>
+              <th style="padding:8px 6px; width:100px;">Batch #</th>
+              <th style="padding:8px 6px; width:130px;">Item Reason</th>
+              <th style="padding:8px 6px; text-align:right;">Debit Total</th>
+              <th style="padding:8px 6px; width:30px;"></th>
+            </tr>
+          </thead>
+          <tbody id="retTbody"></tbody>
+        </table>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; background:var(--bg-input); border-radius:12px;">
+        <div>
+          <span style="font-weight:700;">Total Return Credit Value:</span>
+          <div style="font-size:11px; color:var(--text-muted);">Amount vendor owes store / debit note total</div>
+        </div>
+        <b id="retTotalCost" style="font-size:20px; color:var(--bad);">LKR 0.00</b>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" data-x>${t('cancel')}</button>
+        <button type="submit" class="btn btn-danger" style="font-weight:800;">Approve & Deduct Stock</button>
+      </div>
+    </form>
+  `, true);
+
+  const renderRows = () => {
+    const tbody = m.querySelector('#retTbody');
+    if (!tbody) return;
+
+    tbody.innerHTML = rows.map((r, i) => {
+      const isExceeded = (+r.qty > +r.currentStock);
+      return `
+        <tr style="border-bottom:1px solid var(--border-card); ${isExceeded ? 'background:rgba(239,68,68,0.06);' : ''}">
+          <td style="padding:8px 10px;">
+            <b>${esc(r.name)}</b>
+            <div style="font-size:10.5px; color:var(--text-muted);">${esc(r.category || 'General')}</div>
+            ${isExceeded ? `<div style="font-size:10px; color:var(--bad); font-weight:700;">⚠️ Return qty exceeds stock (${r.currentStock})</div>` : ''}
+          </td>
+          <td style="padding:8px 6px; text-align:center; color:var(--text-muted); font-size:11.5px;">
+            ${Number.isInteger(+r.currentStock) ? r.currentStock : (+r.currentStock).toFixed(3)} ${esc(r.unit || 'pcs')}
+          </td>
+          <td style="padding:8px 6px;">
+            <input type="number" min="0.001" max="${r.currentStock}" step="${r.isLoose ? '0.001' : '1'}" value="${r.qty}" data-idx="${i}" data-f="qty" style="padding:5px; text-align:center; width:100%; ${isExceeded ? 'border-color:var(--bad);' : ''}">
+            ${r.unit && r.unit !== 'pcs' ? `<div style="font-size:10px; color:var(--text-muted); text-align:center;">${esc(r.unit)}</div>` : ''}
+          </td>
+          <td style="padding:8px 6px;">
+            <input type="number" min="0" step="0.01" value="${r.unitCost}" data-idx="${i}" data-f="unitCost" style="padding:5px; width:100%;">
+          </td>
+          <td style="padding:8px 6px;">
+            <input type="text" value="${esc(r.batchNo)}" placeholder="Batch" data-idx="${i}" data-f="batchNo" style="padding:5px; width:100%;">
+          </td>
+          <td style="padding:8px 6px;">
+            <input type="text" value="${esc(r.reason)}" placeholder="Reason" data-idx="${i}" data-f="reason" style="padding:5px; width:100%;">
+          </td>
+          <td style="padding:8px 6px; text-align:right; font-weight:800; color:var(--bad);">
+            ${fmt((+r.qty || 0) * (+r.unitCost || 0))}
+          </td>
+          <td style="padding:8px 6px; text-align:center;">
+            <button type="button" class="btn-ghost" data-delret="${i}" style="color:var(--bad); font-size:14px; cursor:pointer; border:0; padding:2px;">✕</button>
+          </td>
+        </tr>
+      `;
+    }).join('') || `<tr><td colspan="8" class="muted" style="text-align:center; padding:20px;">No return items added yet. Search and select products above.</td></tr>`;
+
+    const tot = rows.reduce((s, r) => s + (Number(r.qty) || 0) * (Number(r.unitCost) || 0), 0);
+    m.querySelector('#retTotalCost').textContent = fmt(tot);
+  };
+
+  renderRows();
+
+  const searchInput = m.querySelector('#retItemSearch');
+  const catFilter = m.querySelector('#retCatFilter');
+  const suggestList = m.querySelector('#retSuggestList');
+  const mainReason = m.querySelector('#retMainReason');
+
+  const updateSuggestions = () => {
+    const selCat = catFilter.value;
+    const q = searchInput.value.toLowerCase().trim();
+
+    const matches = catalog.filter(it => 
+      (selCat === 'All' || it.Category === selCat) &&
+      (it.Name + ' ' + (it.Barcode || '') + ' ' + it.Category).toLowerCase().includes(q)
+    );
+
+    if (!matches.length) {
+      suggestList.innerHTML = `<div class="muted small" style="padding:10px 14px;">No products found</div>`;
+      suggestList.classList.remove('hide');
+      return;
+    }
+
+    suggestList.innerHTML = matches.slice(0, 15).map(it => `
+      <div class="grn-suggest-item" data-item-id="${it.Id}">
+        <div>
+          <b>${esc(it.Name)}</b>
+          <div style="font-size:11px; color:var(--text-muted);">${esc(it.Category)} · Current Stock: <b>${it.Stock} ${it.Unit || 'pcs'}</b></div>
+        </div>
+        <div style="text-align:right;">
+          <b style="color:var(--brand);">${fmt(it.Price)}</b>
+          <span class="pill ${it.Stock <= 0 ? 'no' : 'warn'}" style="font-size:10px; margin-left:6px;">
+            ${it.Stock <= 0 ? 'No Stock' : '+ Return'}
+          </span>
+        </div>
+      </div>
+    `).join('');
+    suggestList.classList.remove('hide');
+  };
+
+  searchInput.oninput = updateSuggestions;
+  searchInput.onfocus = updateSuggestions;
+  catFilter.onchange = updateSuggestions;
+
+  suggestList.onclick = e => {
+    const itemEl = e.target.closest('[data-item-id]');
+    if (!itemEl) return;
+    const itId = +itemEl.dataset.itemId;
+    const it = catalog.find(c => c.Id === itId);
+    if (it) {
+      if (+it.Stock <= 0) {
+        return toast(`Cannot return "${it.Name}" because current stock is 0.`, 1);
+      }
+      const existing = rows.find(r => r.itemId === it.Id);
+      if (existing) {
+        return toast(`"${it.Name}" is already added to return items.`, 1);
+      }
+      rows.push({
+        itemId: it.Id,
+        name: it.Name,
+        category: it.Category,
+        currentStock: it.Stock,
+        unit: it.Unit || 'pcs',
+        isLoose: Boolean(it.IsLoose),
+        qty: it.IsLoose ? Math.min(1.0, it.Stock) : Math.min(1, it.Stock),
+        unitCost: Math.round(it.Price * 0.75),
+        batchNo: '',
+        reason: mainReason.value
+      });
+      searchInput.value = '';
+      suggestList.classList.add('hide');
+      renderRows();
+    }
+  };
+
+  m.onclick = e => {
+    if (!e.target.closest('.grn-product-search-box')) {
+      suggestList.classList.add('hide');
+    }
+  };
+
+  m.querySelector('#retTbody').oninput = e => {
+    const { idx, f } = e.target.dataset;
+    if (idx != null && f && rows[idx]) {
+      rows[idx][f] = e.target.value;
+      const tot = rows.reduce((s, r) => s + (Number(r.qty) || 0) * (Number(r.unitCost) || 0), 0);
+      m.querySelector('#retTotalCost').textContent = fmt(tot);
+    }
+  };
+
+  m.querySelector('#retTbody').onclick = e => {
+    const del = e.target.closest('[data-delret]');
+    if (del) {
+      rows.splice(+del.dataset.delret, 1);
+      renderRows();
+    }
+  };
+
+  m.querySelectorAll('[data-x]').forEach(el => el.onclick = m.close);
+
+  m.querySelector('#supplierReturnForm').onsubmit = async e => {
+    e.preventDefault();
+    if (!rows.length) return toast('Please add at least one item to return', 1);
+
+    for (const r of rows) {
+      const q = parseFloat(r.qty) || 0;
+      if (q <= 0) return toast(`Please enter a valid return quantity for "${r.name}"`, 1);
+      if (q > r.currentStock) {
+        return toast(`Cannot return ${q} of "${r.name}". Only ${r.currentStock} in stock.`, 1);
+      }
+    }
+
+    const fd = new FormData(e.target);
+    try {
+      const res = await call('supplierReturns:create', {
+        returnNo: fd.get('returnNo'),
+        supplier: fd.get('supplier'),
+        grnRef: fd.get('grnRef'),
+        reason: fd.get('reason'),
+        items: rows.map(r => ({
+          itemId: +r.itemId,
+          qty: Math.round((parseFloat(r.qty) || 0) * 1000) / 1000,
+          unitCost: +r.unitCost || 0,
+          batchNo: r.batchNo,
+          reason: r.reason
+        }))
+      });
+
+      m.close();
+      toast(`Supplier return note ${res.returnNo} recorded and stock deducted!`);
+      vGrn();
+      showSupplierReturnModal(res.id);
+    } catch (err) {
+      toast(err.message, 1);
+    }
+  };
+}
+
+/* ==========================================================================
    VIEW 5: COMPREHENSIVE REPORTS & BUSINESS INTELLIGENCE
    ========================================================================== */
 const REPORT_CATALOG = {
@@ -6022,6 +6585,43 @@ const REPORT_CATALOG = {
       ['Total Purchases Spent', r => `<b style="color:var(--accent-pink);">${fmt(r.Total)}</b>`]
     ]
   },
+  supplierReturns: {
+    group: 'GRN & Purchases',
+    icon: '↩️',
+    name: 'Supplier Returns Summary (Debit Notes)',
+    desc: 'Returned goods to vendors with debit note totals and credit values',
+    sumCol: 'Total',
+    qtyCol: 'TotalQty',
+    cols: [
+      ['Return Note #', r => `<b style="color:var(--bad);">${esc(r.ReturnNo)}</b>`],
+      ['Return Date', r => esc(r.CreatedDate)],
+      ['Supplier', r => `<b>${esc(r.Supplier)}</b>`],
+      ['GRN Ref', r => `<code class="muted">${esc(r.GrnRef)}</code>`],
+      ['Return Reason', r => `<span class="pill warn">${esc(r.Reason)}</span>`],
+      ['Items Returned', r => `<b>${r.TotalQty} units</b> (${r.ItemTypes} types)`],
+      ['Total Credit Value', r => `<b style="color:var(--bad);">${fmt(r.Total)}</b>`],
+      ['Returned By', r => `<small class="muted">${esc(r.ReturnedBy)}</small>`]
+    ]
+  },
+  supplierReturnItems: {
+    group: 'GRN & Purchases',
+    icon: '📦',
+    name: 'Supplier Return Line Items',
+    desc: 'Itemized products returned to vendors with defect/expiry reasons and batch #',
+    sumCol: 'Total',
+    qtyCol: 'Qty',
+    cols: [
+      ['Product Name', r => `<b>${esc(r.Item)}</b>`],
+      ['Return #', r => `<code class="muted">${esc(r.ReturnNo)}</code>`],
+      ['Date', r => esc(r.CreatedDate)],
+      ['Supplier', r => esc(r.Supplier)],
+      ['Batch No', r => `<code>${esc(r.BatchNo)}</code>`],
+      ['Defect / Reason', r => `<span class="pill warn">${esc(r.Reason || 'Return')}</span>`],
+      ['Qty Returned', r => `<b>${Number.isInteger(+r.Qty) ? r.Qty : (+r.Qty).toFixed(3)} ${esc(r.Unit || 'pcs')}</b>`],
+      ['Unit Cost', r => fmt(r.UnitCost)],
+      ['Debit Total', r => `<b style="color:var(--bad);">${fmt(r.Total)}</b>`]
+    ]
+  },
 
   // --- 3. INVENTORY & STOCK REPORTS ---
   stockValuation: {
@@ -6154,6 +6754,8 @@ async function vReports() {
               <option value="grnSummary">GRN Inward Receipts Summary</option>
               <option value="grnItems">GRN Item-wise Purchases</option>
               <option value="suppliers">Supplier Purchases Breakdown</option>
+              <option value="supplierReturns">↩️ Supplier Returns Summary (Debit Notes)</option>
+              <option value="supplierReturnItems">📋 Supplier Return Line Items</option>
             </optgroup>
             <optgroup label="🏷️ Inventory & Stock">
               <option value="stockValuation">Current Stock & Valuation</option>
@@ -6250,10 +6852,11 @@ async function vReports() {
       $('#kpiTotalSub').textContent = 'Total inventory valuation';
       $('#kpiAvgSub').textContent = 'Average value per item';
     } else if (def.group === 'GRN & Purchases') {
-      $('#kpiRecordsSub').textContent = 'Purchases / Deliveries';
-      $('#kpiUnitsSub').textContent = 'Total units received in stock';
-      $('#kpiTotalSub').textContent = 'Total inward procurement cost';
-      $('#kpiAvgSub').textContent = 'Average cost per shipment';
+      const isReturn = currentReportKey.startsWith('supplierReturn');
+      $('#kpiRecordsSub').textContent = isReturn ? 'Return Notes / Shipments' : 'Purchases / Deliveries';
+      $('#kpiUnitsSub').textContent = isReturn ? 'Total units returned to vendors' : 'Total units received in stock';
+      $('#kpiTotalSub').textContent = isReturn ? 'Total debit note credit value' : 'Total inward procurement cost';
+      $('#kpiAvgSub').textContent = isReturn ? 'Average value per return' : 'Average cost per shipment';
     } else {
       $('#kpiRecordsSub').textContent = 'Sales turnover entries';
       $('#kpiUnitsSub').textContent = 'Total volume / customer transactions';
@@ -7653,6 +8256,29 @@ async function vHelp() {
           num: 3,
           title: 'Print Z-Report Closing Slip',
           body: 'Click <strong>Close Shift & Print Z-Report</strong>. A full closing slip prints out showing total sales, cash, card, and your drawer balance.'
+        }
+      ]
+    },
+    supplierReturn: {
+      icon: '↩️',
+      title: 'Returning Damaged / Expired Items to Supplier',
+      sub: 'How to send damaged, expired, or defective goods back to your distributor or vendor.',
+      tip: '📦 <strong>Good to know:</strong> When you record a supplier return, the stock is automatically deducted from inventory and you can print a Supplier Debit Voucher for the delivery driver to sign.',
+      steps: [
+        {
+          num: 1,
+          title: 'Open Supplier Returns',
+          body: 'Click <strong>Goods Received (GRN)</strong> in the left sidebar, then click the <strong>↩️ Supplier Returns</strong> tab at the top.'
+        },
+        {
+          num: 2,
+          title: 'Add Damaged or Expired Items',
+          body: 'Click <strong>+ New Supplier Return</strong>. Choose the supplier name and return reason (like Damaged Packaging or Expired). Search and select the items to return and type the quantity.'
+        },
+        {
+          num: 3,
+          title: 'Approve & Print Debit Note',
+          body: 'Click <strong>Approve & Deduct Stock</strong>. The items are removed from inventory and a Supplier Return Voucher opens with signature spaces for you and the vendor rep!'
         }
       ]
     },
